@@ -13,6 +13,7 @@ import (
 
 var (
 	language string
+	model    string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -21,7 +22,8 @@ var rootCmd = &cobra.Command{
 	Short: "Generate commits based on changes made in the project",
 	Long:  `Commit generator helps you to generate commits using the conventional commit pattern. It uses an LLM to generate the commit for you to review`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		err := generator.GenerateCommit(language)
+		opts := generator.Options{Language: language, Model: model}
+		err := generator.Run(opts)
 		return err
 	},
 }
@@ -37,4 +39,5 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringVar(&language, "language", "en", "Commit language")
+	rootCmd.Flags().StringVar(&model, "model", "glm-5:cloud", "Ollama model")
 }

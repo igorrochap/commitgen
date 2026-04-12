@@ -11,7 +11,6 @@ func Start(done <-chan struct{}) {
 		for {
 			select {
 			case <-done:
-				fmt.Printf("\n\n")
 				return
 			default:
 				for _, f := range frames {

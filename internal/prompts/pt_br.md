@@ -26,30 +26,27 @@ Siga o padrão de **Conventional Commits**:
 ### Exemplos
 
 **Commit de funcionalidade:**
-```md
+
 feat(auth): adiciona autenticação JWT
 
 Implementa sistema de autenticação baseado em JWT com:
 - Endpoint de login com geração de token
 - Middleware de validação de token
 - Suporte a refresh token
-```
 
 **Correção de bug:**
-```md
+
 fix(api): trata valores nulos no perfil do usuário
 
 Evita falhas quando campos do perfil do usuário são nulos.
 Adiciona verificações de null antes de acessar propriedades aninhadas.
-```
 
 **Refatoração:**
-```md
+
 refactor(database): simplifica query builder
 
 Extrai padrões comuns de queries para funções reutilizáveis.
 Reduz duplicação de código na camada de banco de dados.
-```
 
 ## Diretrizes para mensagens de commit
 
@@ -70,7 +67,7 @@ Reduz duplicação de código na camada de banco de dados.
 
 Ao commitar várias alterações relacionadas:
 
-```md
+
 refactor(core): reestrutura módulo de autenticação
 
 - Move lógica de auth dos controllers para a camada de serviços
@@ -79,7 +76,6 @@ refactor(core): reestrutura módulo de autenticação
 - Adiciona testes de integração para o fluxo de autenticação
 
 Breaking change: Serviço de autenticação agora requer um objeto de configuração
-```
 
 ## Exemplos de escopo
 
@@ -99,7 +95,7 @@ Breaking change: Serviço de autenticação agora requer um objeto de configura�
 
 Indique mudanças incompatíveis de forma clara:
 
-```md
+
 feat(api)!: reestrutura formato de resposta da API
 
 BREAKING CHANGE: Todas as respostas da API agora seguem a especificação JSON:API
@@ -111,7 +107,6 @@ Novo formato:
 { "data": {...}, "meta": {...} }
 
 Guia de migração: Atualize o código do cliente para lidar com a nova estrutura de resposta
-```
 
 ## Template de fluxo de trabalho
 

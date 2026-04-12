@@ -9,10 +9,15 @@ import (
 	"text/template"
 )
 
-func GenerateCommit(lang string) error {
-	prompt, ok := prompts.Get(lang)
-	if ok == false {
-		return fmt.Errorf("language %s not supported", lang)
+type Options struct {
+	Language string
+	Model    string
+}
+
+func Run(option Options) error {
+	prompt, err := getPrompt(option.Language)
+	if err != nil {
+		return err
 	}
 	diff, err := GetDiff()
 	if err != nil {
@@ -22,13 +27,27 @@ func GenerateCommit(lang string) error {
 	if err != nil {
 		return err
 	}
+	commit, err := generateCommit(tmpl, diff, option.Model)
+	fmt.Print("\033[H\033[2J")
+	fmt.Printf("\n%s\n", commit)
+	return nil
+}
 
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, map[string]string{"Diff": diff})
-	if err != nil {
-		return err
+func getPrompt(language string) (string, error) {
+	prompt, ok := prompts.Get(language)
+	if ok == false {
+		return "", fmt.Errorf("language %s not supported", language)
 	}
-	cmd := exec.Command("ollama", "run", "glm-5:cloud", "--hidethinking")
+	return prompt, nil
+}
+
+func generateCommit(tmpl *template.Template, diff string, model string) (string, error) {
+	var buf bytes.Buffer
+	err := tmpl.Execute(&buf, map[string]string{"Diff": diff})
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("ollama", "run", model, "--hidethinking")
 	cmd.Stdin = &buf
 
 	done := make(chan struct{})
@@ -38,8 +57,7 @@ func GenerateCommit(lang string) error {
 	close(done)
 
 	if err != nil {
-		return err
+		return "", err
 	}
-	fmt.Println(string(out))
-	return nil
+	return string(out), nil
 }

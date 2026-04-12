@@ -6,13 +6,12 @@ You are a commit message generator. Your only task is to write a Conventional Co
 
 Follow the **Conventional Commits** standard:
 
-```md
+
 <type>(<scope>): <description>
 
 [optional body]
 
 [optional footer]
-```
 
 ### Types
 
@@ -27,30 +26,27 @@ Follow the **Conventional Commits** standard:
 ### Examples
 
 **Feature commit:**
-```md
+
 feat(auth): add JWT authentication
 
 Implements a JWT-based authentication system with:
 - Login endpoint with token generation
 - Token validation middleware
 - Refresh token support
-```
 
 **Bug fix:**
-```md
+
 fix(api): handle null values in user profile
 
 Prevents failures when user profile fields are null.
 Adds null checks before accessing nested properties.
-```
 
 **Refactoring:**
-```md
+
 refactor(database): simplify query builder
 
 Extracts common query patterns into reusable functions.
 Reduces code duplication in the database layer.
-```
 
 ## Commit message guidelines
 
@@ -71,7 +67,7 @@ Reduces code duplication in the database layer.
 
 When committing multiple related changes:
 
-```md
+
 refactor(core): restructure authentication module
 
 - Move auth logic from controllers to the service layer
@@ -80,7 +76,6 @@ refactor(core): restructure authentication module
 - Add integration tests for the authentication flow
 
 Breaking change: Authentication service now requires a configuration object
-```
 
 ## Scope examples
 
@@ -100,7 +95,7 @@ Breaking change: Authentication service now requires a configuration object
 
 Clearly indicate incompatible changes:
 
-```md
+
 feat(api)!: restructure API response format
 
 BREAKING CHANGE: All API responses now follow the JSON:API specification
@@ -112,7 +107,6 @@ New format:
 { "data": {...}, "meta": {...} }
 
 Migration guide: Update client code to handle the new response structure
-```
  
 ## Workflow template
 
