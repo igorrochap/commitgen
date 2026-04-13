@@ -28,9 +28,22 @@ func Run(option Options) error {
 	if err != nil {
 		return err
 	}
+	err = selectOption(tmpl, diff, option.Model)
+	return err
+}
+
+func getPrompt(language string) (string, error) {
+	prompt, ok := prompts.Get(language)
+	if ok == false {
+		return "", fmt.Errorf("language %s not supported", language)
+	}
+	return prompt, nil
+}
+
+func selectOption(tmpl *template.Template, diff string, model string) error {
 	end := false
 	for end == false {
-		commit, err := generateCommit(tmpl, diff, option.Model)
+		commit, err := generateCommit(tmpl, diff, model)
 		if err != nil {
 			return err
 		}
@@ -40,19 +53,16 @@ func Run(option Options) error {
 		}
 		switch result.Choice {
 		case selection.Accept:
-			fmt.Println(commit)
+			//TODO: run commit
+			fmt.Println("Commit <id> created")
+			end = true
+		case selection.Edit:
+			//TODO: edit commit
+			fmt.Println("Editing commit message")
 			end = true
 		}
 	}
 	return nil
-}
-
-func getPrompt(language string) (string, error) {
-	prompt, ok := prompts.Get(language)
-	if ok == false {
-		return "", fmt.Errorf("language %s not supported", language)
-	}
-	return prompt, nil
 }
 
 func generateCommit(tmpl *template.Template, diff string, model string) (string, error) {

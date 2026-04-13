@@ -36,7 +36,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
-				m.cursor++
+				m.cursor--
 			}
 		case "down", "j":
 			if m.cursor < len(m.choices) {
