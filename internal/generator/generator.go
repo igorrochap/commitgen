@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strings"
 	"text/template"
 
 	"github.com/igorrochap/commit-generator/internal/loading"
@@ -98,6 +99,6 @@ func makeCommit(commit string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Commit %s created", string(id))
+	fmt.Printf("Commit %s created\n", strings.TrimSpace(string(id)))
 	return nil
 }
