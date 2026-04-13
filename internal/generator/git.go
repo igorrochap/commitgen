@@ -14,6 +14,7 @@ func GetDiff() (string, error) {
 
 	addAllChanges(staging)
 
+	staging, err = haveStagingChanges()
 	if !staging {
 		return "", fmt.Errorf("There is no changes to commit")
 	}
@@ -46,6 +47,7 @@ func haveStagingChanges() (bool, error) {
 
 func addAllChanges(staging bool) {
 	if !staging {
+		fmt.Println("Adding all changes to the staging")
 		addCmd := exec.Command("git", "add", ".")
 		addCmd.Run()
 	}
