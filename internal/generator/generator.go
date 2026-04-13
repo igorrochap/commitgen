@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/igorrochap/commit-generator/internal/prompts"
 	"github.com/igorrochap/commit-generator/internal/selection"
 )
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\r`)
 
 type Options struct {
 	Language string
@@ -85,7 +88,8 @@ func generateCommit(tmpl *template.Template, diff string, model string) (string,
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+	clean := ansiEscape.ReplaceAllString(string(out), "")
+	return strings.TrimSpace(clean), nil
 }
 
 func makeCommit(commit string) error {
