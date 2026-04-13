@@ -2,9 +2,9 @@ package generator
 
 import (
 	"bytes"
-	"commit_generator/internal/loading"
-	"commit_generator/internal/prompts"
-	"commit_generator/internal/selection"
+	"github.com/igorrochap/commit-generator/internal/loading"
+	"github.com/igorrochap/commit-generator/internal/prompts"
+	"github.com/igorrochap/commit-generator/internal/selection"
 	"fmt"
 	"os/exec"
 	"text/template"

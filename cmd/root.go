@@ -4,7 +4,7 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"commit_generator/internal/generator"
+	"github.com/igorrochap/commit-generator/internal/generator"
 	"fmt"
 	"os"
 
