@@ -37,15 +37,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	return fmt.Sprintf("Generating... %s", m.spinner.View())
+	return fmt.Sprintf("Generating %s", m.spinner.View())
 }
 
-func Start(done <-chan struct{}) {
+// Start begins the loading spinner and returns a wait function that blocks
+// until the spinner has fully exited and the terminal is clean.
+func Start(done <-chan struct{}) func() {
+	finished := make(chan struct{})
+
 	go func() {
+		defer close(finished)
+
 		s := spinner.New()
 		s.Spinner = spinner.Points
 
-		p := tea.NewProgram(model{spinner: s, done: done})
+		p := tea.NewProgram(
+			model{spinner: s, done: done},
+			tea.WithInput(nil),
+		)
 		p.Run() //nolint:errcheck
 	}()
+
+	return func() {
+		<-finished
+	}
 }

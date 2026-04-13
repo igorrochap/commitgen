@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"commit_generator/internal/loading"
 	"commit_generator/internal/prompts"
+	"commit_generator/internal/selection"
 	"fmt"
 	"os/exec"
 	"text/template"
@@ -27,9 +28,22 @@ func Run(option Options) error {
 	if err != nil {
 		return err
 	}
-	commit, err := generateCommit(tmpl, diff, option.Model)
-	fmt.Print("\033[H\033[2J")
-	fmt.Printf("\n%s\n", commit)
+	end := false
+	for end == false {
+		commit, err := generateCommit(tmpl, diff, option.Model)
+		if err != nil {
+			return err
+		}
+		result, err := selection.Run(commit)
+		if err != nil {
+			return err
+		}
+		switch result.Choice {
+		case selection.Accept:
+			fmt.Println(commit)
+			end = true
+		}
+	}
 	return nil
 }
 
@@ -52,9 +66,10 @@ func generateCommit(tmpl *template.Template, diff string, model string) (string,
 
 	done := make(chan struct{})
 
-	loading.Start(done)
+	wait := loading.Start(done)
 	out, err := cmd.Output()
 	close(done)
+	wait()
 
 	if err != nil {
 		return "", err

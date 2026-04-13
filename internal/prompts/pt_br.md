@@ -138,6 +138,7 @@ Guia de migração: Atualize o código do cliente para lidar com a nova estrutur
 ## Observações
 
 NUNCA adicione sua coautoria nos commits
+Retorne APENAS a mensagem de commit pura. Não envolva em blocos de código markdown (sem ``` ou ```commit).
 
 ## Diff
 {{.Diff}}

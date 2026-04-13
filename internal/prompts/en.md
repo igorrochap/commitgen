@@ -135,7 +135,8 @@ Migration guide: Update client code to handle the new response structure
 
 ## Notes
 
-NEVER add your co-authorship to commits·
+NEVER add your co-authorship to commits
+Output ONLY the raw commit message. Do not wrap it in markdown code blocks (no ``` or ```commit).
 
 ## Diff
 {{.Diff}}
