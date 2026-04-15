@@ -4,9 +4,10 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"github.com/igorrochap/commitgen/internal/generator"
 	"fmt"
 	"os"
+
+	"github.com/igorrochap/commitgen/internal/generator"
 
 	"github.com/spf13/cobra"
 )
@@ -41,5 +42,5 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringVar(&language, "language", "en", "Commit language")
-	rootCmd.Flags().StringVar(&model, "model", "glm-5:cloud", "Ollama model")
+	rootCmd.Flags().StringVar(&model, "model", "gemma4:31b-cloud", "Ollama model")
 }
