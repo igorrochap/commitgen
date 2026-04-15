@@ -24,6 +24,28 @@ cd commit-generator
 
 This builds the binary and installs it to `/usr/local/bin/commitgen`, making it available anywhere on your machine.
 
+### Alternative: install with `go install`
+
+If you have Go installed, you can skip cloning the repo entirely:
+
+```bash
+go install github.com/igorrochap/commit-generator@latest
+```
+
+This drops the binary in `$(go env GOPATH)/bin` (usually `~/go/bin`). Make sure that directory is on your `$PATH`.
+
+## Updating
+
+Once installed, you can upgrade to the latest version at any time with:
+
+```bash
+commitgen update
+```
+
+Under the hood this runs `go install github.com/igorrochap/commit-generator@latest`, so the `go` toolchain must be on your `$PATH`.
+
+If you originally installed via `./install.sh` (to `/usr/local/bin`), the fresh binary lands in `$(go env GOPATH)/bin`. `commitgen update` will tell you the exact command to copy it over the system binary.
+
 ## Usage
 
 Inside any git repository, run:
