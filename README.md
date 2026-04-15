@@ -59,7 +59,7 @@ If there are no staged changes, all current changes are staged automatically bef
 | Flag         | Default        | Description                              |
 |--------------|----------------|------------------------------------------|
 | `--language` | `en`           | Language for the commit message          |
-| `--model`    | `glm-5:cloud`  | Ollama model to use for generation       |
+| `--model`    | `gemma4:31b-cloud`  | Ollama model to use for generation       |
 
 ### Supported languages
 
