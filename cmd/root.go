@@ -18,6 +18,7 @@ import (
 var (
 	language string
 	model    string
+	version  bool
 )
 
 var configPath = appconfig.Path
@@ -29,9 +30,17 @@ var rootCmd = &cobra.Command{
 	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. It uses an LLM to generate the commit for you to review`,
 	SilenceUsage: true,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		if version {
+			return
+		}
 		notifyUpdate(cmd)
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if version {
+			printVersion(cmd)
+			return nil
+		}
+
 		opts, err := effectiveOptions(cmd)
 		if err != nil {
 			return err
@@ -50,6 +59,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
 	rootCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Commit language")
 	rootCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
 }

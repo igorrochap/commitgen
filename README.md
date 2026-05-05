@@ -56,10 +56,19 @@ commitgen [flags]
 
 Stage the files you want to commit before running `commitgen`.
 
+Show the installed version with:
+
+```bash
+commitgen version
+commitgen --version
+commitgen -v
+```
+
 ### Flags
 
 | Flag         | Default        | Description                              |
 |--------------|----------------|------------------------------------------|
+| `-v`, `--version` |              | Show commitgen version                   |
 | `--language` | `en`           | Language for the commit message          |
 | `--model`    | `gemini-3-flash-preview`  | Ollama model to use for generation       |
 
