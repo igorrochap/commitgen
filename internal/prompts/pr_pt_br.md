@@ -48,6 +48,9 @@ Titulo: <título>
 - Gere APENAS a descrição do PR. Sem blocos de código markdown, sem preâmbulo, sem explicações.
 - Escreva em português
 
-## Log de commits
+{{if .Context}}## Contexto adicional
+{{.Context}}
+
+{{end}}## Log de commits
 
 {{.Diff}}

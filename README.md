@@ -69,6 +69,7 @@ commitgen -v
 | Flag         | Default        | Description                              |
 |--------------|----------------|------------------------------------------|
 | `-v`, `--version` |              | Show commitgen version                   |
+| `--context`  |                | Additional context for generation        |
 | `--language` | `en`           | Language for the commit message          |
 | `--model`    | `gemini-3-flash-preview`  | Ollama model to use for generation       |
 
@@ -113,8 +114,17 @@ commitgen --model llama3.2
 # Generate the commit message in Brazilian Portuguese
 commitgen --language pt-BR
 
+# Provide additional context for the generated commit message
+commitgen --context "fix ci failure"
+
 # Combine both flags
 commitgen --model llama3.2 --language pt-BR
+```
+
+Generate a Pull Request title and description with additional context:
+
+```bash
+commitgen pr --context "closes the issue #15 on github"
 ```
 
 ## Interactive selection

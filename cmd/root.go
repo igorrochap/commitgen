@@ -16,6 +16,7 @@ import (
 )
 
 var (
+	context  string
 	language string
 	model    string
 	version  bool
@@ -60,6 +61,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
+	rootCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	rootCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Commit language")
 	rootCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
 }
@@ -82,7 +84,11 @@ func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
 		cfg.Model = model
 	}
 
-	return generator.Options{Language: cfg.Language, Model: cfg.Model}, nil
+	return generator.Options{
+		Context:  context,
+		Language: cfg.Language,
+		Model:    cfg.Model,
+	}, nil
 }
 
 func notifyUpdate(cmd *cobra.Command) {

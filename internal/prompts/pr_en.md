@@ -46,6 +46,9 @@ Title: <title>
 - Output ONLY the PR description. No markdown code blocks, no preamble, no explanation.
 - Write in English.
 
-## Commit log
+{{if .Context}}## Additional context
+{{.Context}}
+
+{{end}}## Commit log
 
 {{.Diff}}

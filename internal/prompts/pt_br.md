@@ -142,5 +142,8 @@ NUNCA adicione sua coautoria nos commits
 Retorne APENAS a mensagem de commit pura. Não envolva em blocos de código markdown (sem ``` ou ```commit).
 Cada bullet point deve caber em uma única linha. Não quebre linhas no meio de uma frase.
 
-## Diff
+{{if .Context}}## Contexto adicional
+{{.Context}}
+
+{{end}}## Diff
 {{.Diff}}

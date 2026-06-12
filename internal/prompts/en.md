@@ -140,6 +140,8 @@ NEVER add your co-authorship to commits
 Output ONLY the raw commit message. Do not wrap it in markdown code blocks (no ``` or ```commit).
 Each bullet point must fit on a single line. Do not break lines mid-sentence.
 
-## Diff
-{{.Diff}}
+{{if .Context}}## Additional context
+{{.Context}}
 
+{{end}}## Diff
+{{.Diff}}

@@ -10,6 +10,7 @@ import (
 )
 
 type PROptions struct {
+	Context  string
 	Language string
 	Model    string
 	Base     string
@@ -35,7 +36,7 @@ func RunPR(opts PROptions) error {
 		return err
 	}
 
-	result, err := generateCommit(tmpl, log, opts.Model)
+	result, err := generateCommit(tmpl, log, opts.Model, opts.Context)
 	if err != nil {
 		return err
 	}

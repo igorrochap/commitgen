@@ -56,8 +56,14 @@ func unwrapLines(s string) string {
 }
 
 type Options struct {
+	Context  string
 	Language string
 	Model    string
+}
+
+type promptData struct {
+	Context string
+	Diff    string
 }
 
 func Run(option Options) error {
@@ -73,7 +79,7 @@ func Run(option Options) error {
 	if err != nil {
 		return err
 	}
-	err = selectOption(tmpl, diff, option.Model)
+	err = selectOption(tmpl, diff, option.Model, option.Context)
 	return err
 }
 
@@ -85,10 +91,10 @@ func getPrompt(language string) (string, error) {
 	return prompt, nil
 }
 
-func selectOption(tmpl *template.Template, diff string, model string) error {
+func selectOption(tmpl *template.Template, diff, model, context string) error {
 	end := false
 	for end == false {
-		commit, err := generateCommit(tmpl, diff, model)
+		commit, err := generateCommit(tmpl, diff, model, context)
 		if err != nil {
 			return err
 		}
@@ -167,15 +173,15 @@ func truncateDiff(diff, model, promptTemplate string) string {
 	return diff[:maxChars]
 }
 
-func generateCommit(tmpl *template.Template, diff string, model string) (string, error) {
+func generateCommit(tmpl *template.Template, diff, model, context string) (string, error) {
 	var templateBuf bytes.Buffer
-	if err := tmpl.Execute(&templateBuf, map[string]string{"Diff": ""}); err != nil {
+	if err := tmpl.Execute(&templateBuf, promptData{Context: context}); err != nil {
 		return "", err
 	}
 	diff = truncateDiff(diff, model, templateBuf.String())
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, map[string]string{"Diff": diff}); err != nil {
+	if err := tmpl.Execute(&buf, promptData{Context: context, Diff: diff}); err != nil {
 		return "", err
 	}
 

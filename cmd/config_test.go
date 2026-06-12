@@ -112,6 +112,9 @@ func TestEffectiveOptionsFlagsOverrideSavedConfig(t *testing.T) {
 		t.Fatalf("SaveFile() error = %v", err)
 	}
 	cmd := newRootTestCommand()
+	if err := cmd.Flags().Set("context", "fix CI failure"); err != nil {
+		t.Fatalf("Set(context) error = %v", err)
+	}
 	if err := cmd.Flags().Set("language", "en"); err != nil {
 		t.Fatalf("Set(language) error = %v", err)
 	}
@@ -126,6 +129,9 @@ func TestEffectiveOptionsFlagsOverrideSavedConfig(t *testing.T) {
 
 	if opts.Language != "en" {
 		t.Fatalf("Language = %q, want en", opts.Language)
+	}
+	if opts.Context != "fix CI failure" {
+		t.Fatalf("Context = %q, want fix CI failure", opts.Context)
 	}
 	if opts.Model != "gemma3" {
 		t.Fatalf("Model = %q, want gemma3", opts.Model)
@@ -154,9 +160,11 @@ func newConfigSetTestCommand() *cobra.Command {
 }
 
 func newRootTestCommand() *cobra.Command {
+	context = ""
 	language = appconfig.DefaultLanguage
 	model = appconfig.DefaultModel
 	cmd := &cobra.Command{}
+	cmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	cmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Commit language")
 	cmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
 	return cmd

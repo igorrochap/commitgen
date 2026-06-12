@@ -41,6 +41,7 @@ var prCmd = &cobra.Command{
 		}
 
 		return generator.RunPR(generator.PROptions{
+			Context:  opts.Context,
 			Language: opts.Language,
 			Model:    opts.Model,
 			Base:     base,
@@ -51,6 +52,7 @@ var prCmd = &cobra.Command{
 
 func init() {
 	prCmd.Flags().StringVar(&prBase, "base", "", "Base branch (default: main/master/develop)")
+	prCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	prCmd.Flags().StringVar(&prHead, "head", "", "Head branch (default: current branch)")
 	prCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Output language")
 	prCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
