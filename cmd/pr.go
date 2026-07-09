@@ -44,6 +44,8 @@ var prCmd = &cobra.Command{
 			Context:  opts.Context,
 			Language: opts.Language,
 			Model:    opts.Model,
+			Provider: opts.Provider,
+			APIKey:   opts.APIKey,
 			Base:     base,
 			Head:     head,
 		})
@@ -55,6 +57,7 @@ func init() {
 	prCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	prCmd.Flags().StringVar(&prHead, "head", "", "Head branch (default: current branch)")
 	prCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Output language")
-	prCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
+	prCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "LLM model")
+	prCmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
 	rootCmd.AddCommand(prCmd)
 }

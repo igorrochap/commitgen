@@ -11,11 +11,23 @@ import (
 const (
 	DefaultLanguage = "en"
 	DefaultModel    = "gemma4:31b-cloud"
+	DefaultProvider = "ollama"
 )
 
 type Config struct {
-	Language string `json:"language,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Language string            `json:"language,omitempty"`
+	Model    string            `json:"model,omitempty"`
+	Provider string            `json:"provider,omitempty"`
+	APIKeys  map[string]string `json:"api_keys,omitempty"`
+}
+
+func IsSupportedProvider(provider string) bool {
+	switch provider {
+	case "ollama", "openai", "anthropic", "gemini":
+		return true
+	default:
+		return false
+	}
 }
 
 func Path() (string, error) {
@@ -55,6 +67,12 @@ func LoadFile(path string) (Config, error) {
 	if saved.Model != "" {
 		cfg.Model = saved.Model
 	}
+	if saved.Provider != "" {
+		cfg.Provider = saved.Provider
+	}
+	if len(saved.APIKeys) > 0 {
+		cfg.APIKeys = saved.APIKeys
+	}
 	return cfg, nil
 }
 
@@ -79,5 +97,7 @@ func Defaults() Config {
 	return Config{
 		Language: DefaultLanguage,
 		Model:    DefaultModel,
+		Provider: DefaultProvider,
+		APIKeys:  map[string]string{},
 	}
 }

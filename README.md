@@ -1,18 +1,18 @@
 # commitgen
 
-A CLI tool that uses a local LLM via [Ollama](https://ollama.com) to generate [Conventional Commits](https://www.conventionalcommits.org) messages from your staged changes.
+A CLI tool that uses an LLM provider to generate [Conventional Commits](https://www.conventionalcommits.org) messages from your staged changes. It supports local generation with [Ollama](https://ollama.com) by default, plus hosted providers such as OpenAI, Anthropic Claude, and Google Gemini.
 
 ## How it works
 
 1. Detects your staged changes
-2. Sends the diff to an Ollama model with a prompt that enforces the Conventional Commits format
+2. Sends the diff to the selected LLM provider with a prompt that enforces the Conventional Commits format
 3. Presents the generated message for you to **accept**, **edit**, or **regenerate**
 
 ## Requirements
 
 - [Go](https://go.dev) 1.21+
 - [Git](https://git-scm.com)
-- [Ollama](https://ollama.com) running locally with at least one model pulled
+- [Ollama](https://ollama.com) running locally with at least one model pulled, or an API key for a hosted provider
 
 ## Installation
 
@@ -71,16 +71,20 @@ commitgen -v
 | `-v`, `--version` |              | Show commitgen version                   |
 | `--context`  |                | Additional context for generation        |
 | `--language` | `en`           | Language for the commit message          |
-| `--model`    | `gemini-3-flash-preview`  | Ollama model to use for generation       |
+| `--model`    | `gemma4:31b-cloud`  | Model to use for generation       |
+| `--provider` | `ollama`       | LLM provider: `ollama`, `openai`, `anthropic`, or `gemini` |
 
 ### Persistent defaults
 
-Save your preferred language or model once with:
+Save your preferred language, provider, model, or API key once with:
 
 ```bash
 commitgen config set --language pt-BR
 commitgen config set --model llama3.2
 commitgen config set --language pt-BR --model llama3.2
+commitgen config set --provider openai --model gpt-5.5 --api-key "$OPENAI_API_KEY"
+commitgen config set --provider anthropic --model claude-sonnet-4-5 --api-key "$ANTHROPIC_API_KEY"
+commitgen config set --provider gemini --model gemini-3.5-flash --api-key "$GEMINI_API_KEY"
 ```
 
 Show the current defaults with:
@@ -111,13 +115,22 @@ commitgen
 # Use a different Ollama model
 commitgen --model llama3.2
 
+# Use OpenAI after configuring its API key
+commitgen --provider openai --model gpt-5.5
+
+# Use Anthropic Claude after configuring its API key
+commitgen --provider anthropic --model claude-sonnet-4-5
+
+# Use Google Gemini after configuring its API key
+commitgen --provider gemini --model gemini-3.5-flash
+
 # Generate the commit message in Brazilian Portuguese
 commitgen --language pt-BR
 
 # Provide additional context for the generated commit message
 commitgen --context "fix ci failure"
 
-# Combine both flags
+# Combine flags
 commitgen --model llama3.2 --language pt-BR
 ```
 

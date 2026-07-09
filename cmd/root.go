@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	appconfig "github.com/igorrochap/commitgen/internal/config"
@@ -19,6 +20,7 @@ var (
 	context  string
 	language string
 	model    string
+	provider string
 	version  bool
 )
 
@@ -63,7 +65,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
 	rootCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	rootCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Commit language")
-	rootCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "Ollama model")
+	rootCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "LLM model")
+	rootCmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
 }
 
 func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
@@ -83,11 +86,24 @@ func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
 	if cmd.Flags().Changed("model") {
 		cfg.Model = model
 	}
+	if cmd.Flags().Changed("provider") {
+		cfg.Provider = strings.ToLower(strings.TrimSpace(provider))
+	}
+	if !appconfig.IsSupportedProvider(cfg.Provider) {
+		return generator.Options{}, fmt.Errorf("provider %s not supported", cfg.Provider)
+	}
+
+	selectedAPIKey := cfg.APIKeys[cfg.Provider]
+	if cfg.Provider != appconfig.DefaultProvider && strings.TrimSpace(selectedAPIKey) == "" {
+		return generator.Options{}, fmt.Errorf("api key for provider %s is not configured; run `commitgen config set --provider %s --api-key <key>`", cfg.Provider, cfg.Provider)
+	}
 
 	return generator.Options{
 		Context:  context,
 		Language: cfg.Language,
 		Model:    cfg.Model,
+		Provider: cfg.Provider,
+		APIKey:   selectedAPIKey,
 	}, nil
 }
 
