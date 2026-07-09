@@ -2,6 +2,9 @@ package generator
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"text/template"
@@ -53,6 +56,191 @@ func TestPromptContext(t *testing.T) {
 				t.Fatalf("prompt does not contain context %q", tt.context)
 			}
 		})
+	}
+}
+
+func TestGenerateTextOpenAI(t *testing.T) {
+	var gotAuth string
+	var gotBody struct {
+		Model string `json:"model"`
+		Input string `json:"input"`
+	}
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: add provider selection"}`), nil
+	}))
+
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+
+	got, err := generateText(providerOptions{
+		Provider: "openai",
+		Model:    "gpt-5.5",
+		APIKey:   "sk-test",
+	}, "prompt")
+	if err != nil {
+		t.Fatalf("generateText() error = %v", err)
+	}
+
+	if got != "feat: add provider selection" {
+		t.Fatalf("generateText() = %q, want feat: add provider selection", got)
+	}
+	if gotAuth != "Bearer sk-test" {
+		t.Fatalf("Authorization = %q, want Bearer sk-test", gotAuth)
+	}
+	if gotBody.Model != "gpt-5.5" {
+		t.Fatalf("Model = %q, want gpt-5.5", gotBody.Model)
+	}
+	if gotBody.Input != "prompt" {
+		t.Fatalf("Input = %q, want prompt", gotBody.Input)
+	}
+}
+
+func TestGenerateTextAnthropic(t *testing.T) {
+	var gotKey string
+	var gotBody struct {
+		Model    string `json:"model"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotKey = r.Header.Get("x-api-key")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		return jsonResponse(http.StatusOK, `{"content":[{"type":"text","text":"fix: support claude"}]}`), nil
+	}))
+
+	got, err := generateText(providerOptions{
+		Provider: "anthropic",
+		Model:    "claude-sonnet-4-5",
+		APIKey:   "anthropic-key",
+	}, "prompt")
+	if err != nil {
+		t.Fatalf("generateText() error = %v", err)
+	}
+
+	if got != "fix: support claude" {
+		t.Fatalf("generateText() = %q, want fix: support claude", got)
+	}
+	if gotKey != "anthropic-key" {
+		t.Fatalf("x-api-key = %q, want anthropic-key", gotKey)
+	}
+	if gotBody.Model != "claude-sonnet-4-5" {
+		t.Fatalf("Model = %q, want claude-sonnet-4-5", gotBody.Model)
+	}
+	if len(gotBody.Messages) != 1 || gotBody.Messages[0].Content != "prompt" {
+		t.Fatalf("Messages = %+v, want single prompt message", gotBody.Messages)
+	}
+}
+
+func TestGenerateTextGemini(t *testing.T) {
+	var gotURL string
+	var gotBody struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+	}
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotURL = r.URL.String()
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		return jsonResponse(http.StatusOK, `{"candidates":[{"content":{"parts":[{"text":"chore: support gemini"}]}}]}`), nil
+	}))
+	withProviderEndpoint(t, "gemini", "https://example.test/v1beta/models")
+
+	got, err := generateText(providerOptions{
+		Provider: "gemini",
+		Model:    "gemini-3.5-flash",
+		APIKey:   "gemini-key",
+	}, "prompt")
+	if err != nil {
+		t.Fatalf("generateText() error = %v", err)
+	}
+
+	if got != "chore: support gemini" {
+		t.Fatalf("generateText() = %q, want chore: support gemini", got)
+	}
+	if !strings.Contains(gotURL, "/gemini-3.5-flash:generateContent") {
+		t.Fatalf("URL = %q, want generateContent model path", gotURL)
+	}
+	if !strings.Contains(gotURL, "key=gemini-key") {
+		t.Fatalf("URL = %q, want API key query", gotURL)
+	}
+	if len(gotBody.Contents) != 1 || len(gotBody.Contents[0].Parts) != 1 || gotBody.Contents[0].Parts[0].Text != "prompt" {
+		t.Fatalf("Contents = %+v, want single prompt part", gotBody.Contents)
+	}
+}
+
+func TestGenerateCommitUsesSelectedProvider(t *testing.T) {
+	var gotBody struct {
+		Model string `json:"model"`
+		Input string `json:"input"`
+	}
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: wire provider"}`), nil
+	}))
+
+	tmpl := template.Must(template.New("prompt").Parse("context={{.Context}} diff={{.Diff}}"))
+	got, err := generateCommit(tmpl, "diff", providerOptions{
+		Provider: "openai",
+		Model:    "gpt-5.5",
+		APIKey:   "sk-test",
+	}, "extra")
+	if err != nil {
+		t.Fatalf("generateCommit() error = %v", err)
+	}
+
+	if got != "feat: wire provider" {
+		t.Fatalf("generateCommit() = %q, want feat: wire provider", got)
+	}
+	if gotBody.Model != "gpt-5.5" {
+		t.Fatalf("Model = %q, want gpt-5.5", gotBody.Model)
+	}
+	if gotBody.Input != "context=extra diff=diff" {
+		t.Fatalf("Input = %q, want rendered prompt", gotBody.Input)
+	}
+}
+
+func withProviderEndpoint(t *testing.T, provider, endpoint string) {
+	t.Helper()
+	original := providerEndpoints[provider]
+	providerEndpoints[provider] = endpoint
+	t.Cleanup(func() {
+		providerEndpoints[provider] = original
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func withProviderHTTPClient(t *testing.T, transport http.RoundTripper) {
+	t.Helper()
+	original := providerHTTPClient
+	providerHTTPClient = &http.Client{Transport: transport}
+	t.Cleanup(func() {
+		providerHTTPClient = original
+	})
+}
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
 	}
 }
 

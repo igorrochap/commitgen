@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,9 @@ func TestLoadFilePartialConfigFallsBack(t *testing.T) {
 	if cfg.Model != DefaultModel {
 		t.Fatalf("Model = %q, want %q", cfg.Model, DefaultModel)
 	}
+	if cfg.Provider != DefaultProvider {
+		t.Fatalf("Provider = %q, want %q", cfg.Provider, DefaultProvider)
+	}
 }
 
 func TestLoadFileInvalidJSONReturnsUsefulError(t *testing.T) {
@@ -57,7 +61,14 @@ func TestLoadFileInvalidJSONReturnsUsefulError(t *testing.T) {
 
 func TestSaveFileCreatesDirectoryAndRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "commitgen", "config.json")
-	want := Config{Language: "pt-BR", Model: "llama3.2"}
+	want := Config{
+		Language: "pt-BR",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKeys: map[string]string{
+			"openai": "sk-test",
+		},
+	}
 
 	if err := SaveFile(path, want); err != nil {
 		t.Fatalf("SaveFile() error = %v", err)
@@ -67,7 +78,7 @@ func TestSaveFileCreatesDirectoryAndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFile() error = %v", err)
 	}
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("LoadFile() = %+v, want %+v", cfg, want)
 	}
 }

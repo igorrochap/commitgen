@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/igorrochap/commitgen/internal/loading"
 	"github.com/igorrochap/commitgen/internal/prompts"
 	"github.com/igorrochap/commitgen/internal/selection"
 )
@@ -59,6 +57,8 @@ type Options struct {
 	Context  string
 	Language string
 	Model    string
+	Provider string
+	APIKey   string
 }
 
 type promptData struct {
@@ -79,7 +79,11 @@ func Run(option Options) error {
 	if err != nil {
 		return err
 	}
-	err = selectOption(tmpl, diff, option.Model, option.Context)
+	err = selectOption(tmpl, diff, providerOptions{
+		Provider: option.Provider,
+		Model:    option.Model,
+		APIKey:   option.APIKey,
+	}, option.Context)
 	return err
 }
 
@@ -91,10 +95,10 @@ func getPrompt(language string) (string, error) {
 	return prompt, nil
 }
 
-func selectOption(tmpl *template.Template, diff, model, context string) error {
+func selectOption(tmpl *template.Template, diff string, provider providerOptions, context string) error {
 	end := false
 	for end == false {
-		commit, err := generateCommit(tmpl, diff, model, context)
+		commit, err := generateCommit(tmpl, diff, provider, context)
 		if err != nil {
 			return err
 		}
@@ -116,19 +120,6 @@ func selectOption(tmpl *template.Template, diff, model, context string) error {
 		}
 	}
 	return nil
-}
-
-type ollamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-	Think  bool   `json:"think"`
-}
-
-type ollamaStreamChunk struct {
-	Response string `json:"response"`
-	Done     bool   `json:"done"`
-	Error    string `json:"error"`
 }
 
 // modelContextLength queries ollama for the model's context window size.
@@ -173,63 +164,26 @@ func truncateDiff(diff, model, promptTemplate string) string {
 	return diff[:maxChars]
 }
 
-func generateCommit(tmpl *template.Template, diff, model, context string) (string, error) {
+func generateCommit(tmpl *template.Template, diff string, provider providerOptions, context string) (string, error) {
 	var templateBuf bytes.Buffer
 	if err := tmpl.Execute(&templateBuf, promptData{Context: context}); err != nil {
 		return "", err
 	}
-	diff = truncateDiff(diff, model, templateBuf.String())
+	if provider.Provider == "ollama" {
+		diff = truncateDiff(diff, provider.Model, templateBuf.String())
+	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, promptData{Context: context, Diff: diff}); err != nil {
 		return "", err
 	}
 
-	body, err := json.Marshal(ollamaRequest{
-		Model:  model,
-		Prompt: buf.String(),
-		Stream: true,
-		Think:  false,
-	})
+	result, err := generateText(provider, buf.String())
 	if err != nil {
 		return "", err
 	}
 
-	done := make(chan struct{})
-	wait := loading.Start(done)
-
-	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewReader(body))
-
-	close(done)
-	wait()
-
-	if err != nil {
-		return "", fmt.Errorf("ollama: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("ollama: %s", strings.TrimSpace(string(b)))
-	}
-
-	var result strings.Builder
-	decoder := json.NewDecoder(resp.Body)
-	for {
-		var chunk ollamaStreamChunk
-		if err := decoder.Decode(&chunk); err != nil {
-			break
-		}
-		if chunk.Error != "" {
-			return "", fmt.Errorf("ollama: %s", chunk.Error)
-		}
-		result.WriteString(chunk.Response)
-		if chunk.Done {
-			break
-		}
-	}
-
-	clean := ansiEscape.ReplaceAllString(result.String(), "")
+	clean := ansiEscape.ReplaceAllString(result, "")
 	clean = unwrapLines(clean)
 	return strings.TrimSpace(clean), nil
 }

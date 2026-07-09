@@ -13,6 +13,8 @@ type PROptions struct {
 	Context  string
 	Language string
 	Model    string
+	Provider string
+	APIKey   string
 	Base     string
 	Head     string
 }
@@ -36,7 +38,11 @@ func RunPR(opts PROptions) error {
 		return err
 	}
 
-	result, err := generateCommit(tmpl, log, opts.Model, opts.Context)
+	result, err := generateCommit(tmpl, log, providerOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		APIKey:   opts.APIKey,
+	}, opts.Context)
 	if err != nil {
 		return err
 	}
