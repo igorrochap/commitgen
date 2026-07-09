@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-07-09)
+
+### Features
+
+- **core**: Add multi-LLM provider support and loading states
+  ([#7](https://github.com/igorrochap/commitgen/pull/7),
+  [`282ba6b`](https://github.com/igorrochap/commitgen/commit/282ba6bfcb0c75e497068cf9deb7c4d5d25bf17a))
+
+- **core**: Add support for multiple LLM providers
+  ([#7](https://github.com/igorrochap/commitgen/pull/7),
+  [`282ba6b`](https://github.com/igorrochap/commitgen/commit/282ba6bfcb0c75e497068cf9deb7c4d5d25bf17a))
+
+### Testing
+
+- **generator**: Add loading state integration tests
+  ([#7](https://github.com/igorrochap/commitgen/pull/7),
+  [`282ba6b`](https://github.com/igorrochap/commitgen/commit/282ba6bfcb0c75e497068cf9deb7c4d5d25bf17a))
+
+
 ## v1.6.0 (2026-06-12)
 
 ### Features
