@@ -65,6 +65,11 @@ func TestGenerateTextOpenAI(t *testing.T) {
 		Model string `json:"model"`
 		Input string `json:"input"`
 	}
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
 	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		gotAuth = r.Header.Get("Authorization")
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -107,6 +112,11 @@ func TestGenerateTextAnthropic(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"messages"`
 	}
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
 	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		gotKey = r.Header.Get("x-api-key")
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -147,6 +157,11 @@ func TestGenerateTextGemini(t *testing.T) {
 			} `json:"parts"`
 		} `json:"contents"`
 	}
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
 	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		gotURL = r.URL.String()
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
@@ -184,6 +199,11 @@ func TestGenerateCommitUsesSelectedProvider(t *testing.T) {
 		Model string `json:"model"`
 		Input string `json:"input"`
 	}
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
 	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("Decode() error = %v", err)
@@ -212,12 +232,52 @@ func TestGenerateCommitUsesSelectedProvider(t *testing.T) {
 	}
 }
 
+func TestGenerateTextStartsLoadingForHostedProvider(t *testing.T) {
+	started := 0
+	waited := 0
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		started++
+		return func() {
+			<-done
+			waited++
+		}
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: use shared loading"}`), nil
+	}))
+
+	_, err := generateText(providerOptions{
+		Provider: "openai",
+		Model:    "gpt-5.5",
+		APIKey:   "sk-test",
+	}, "prompt")
+	if err != nil {
+		t.Fatalf("generateText() error = %v", err)
+	}
+
+	if started != 1 {
+		t.Fatalf("loading starts = %d, want 1", started)
+	}
+	if waited != 1 {
+		t.Fatalf("loading waits = %d, want 1", waited)
+	}
+}
+
 func withProviderEndpoint(t *testing.T, provider, endpoint string) {
 	t.Helper()
 	original := providerEndpoints[provider]
 	providerEndpoints[provider] = endpoint
 	t.Cleanup(func() {
 		providerEndpoints[provider] = original
+	})
+}
+
+func withProviderLoading(t *testing.T, start func(<-chan struct{}) func()) {
+	t.Helper()
+	original := startLoading
+	startLoading = start
+	t.Cleanup(func() {
+		startLoading = original
 	})
 }
 

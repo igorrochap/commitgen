@@ -19,6 +19,8 @@ var providerEndpoints = map[string]string{
 
 var providerHTTPClient = http.DefaultClient
 
+var startLoading = loading.Start
+
 type providerOptions struct {
 	Provider string
 	Model    string
@@ -58,7 +60,19 @@ func generateText(opts providerOptions, prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return provider.Generate(prompt)
+
+	done := make(chan struct{})
+	wait := startLoading(done)
+
+	result, err := provider.Generate(prompt)
+
+	close(done)
+	wait()
+
+	if err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 func newTextProvider(opts providerOptions) (textProvider, error) {
@@ -111,13 +125,7 @@ func (p ollamaProvider) Generate(prompt string) (string, error) {
 		return "", err
 	}
 
-	done := make(chan struct{})
-	wait := loading.Start(done)
-
 	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewReader(body))
-
-	close(done)
-	wait()
 
 	if err != nil {
 		return "", fmt.Errorf("ollama: %w", err)
