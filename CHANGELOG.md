@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-08-20)
+
+### Chores
+
+- **agents**: Add skill definitions for agent orchestration
+  ([`12e6425`](https://github.com/igorrochap/commitgen/commit/12e6425b9a84f3b790e63ee48813cc225ca9a5c8))
+
+### Features
+
+- **cli**: Add push command to upload commits ([#9](https://github.com/igorrochap/commitgen/pull/9),
+  [`b07feb9`](https://github.com/igorrochap/commitgen/commit/b07feb97c7a9e2d29b18db50a6d772a3dfafc875))
+
+
 ## v1.7.0 (2026-07-09)
 
 ### Features
