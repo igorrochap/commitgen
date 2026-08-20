@@ -3,7 +3,9 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 func GetDiff() (string, error) {
@@ -39,4 +41,47 @@ func haveStagingChanges() (bool, error) {
 		return false, err
 	}
 	return false, nil
+}
+
+func Push() error {
+	branch, err := CurrentBranch()
+	if err != nil {
+		return err
+	}
+
+	args := []string{"push"}
+	if !hasUpstream() {
+		remote, err := firstRemote()
+		if err != nil {
+			return err
+		}
+		args = append(args, "-u", remote, branch)
+	}
+
+	pushCmd := exec.Command("git", args...)
+	pushCmd.Stdout = os.Stdout
+	pushCmd.Stderr = os.Stderr
+	if err := pushCmd.Run(); err != nil {
+		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+func hasUpstream() bool {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	return cmd.Run() == nil
+}
+
+func firstRemote() (string, error) {
+	cmd := exec.Command("git", "remote")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git remote: %w", err)
+	}
+
+	remotes := strings.Fields(string(output))
+	if len(remotes) == 0 {
+		return "", errors.New("no git remote configured")
+	}
+	return remotes[0], nil
 }

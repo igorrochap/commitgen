@@ -3,13 +3,17 @@ package generator
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
 
 	"github.com/igorrochap/commitgen/internal/prompts"
+	"github.com/igorrochap/commitgen/internal/selection"
 )
 
 func TestPromptContext(t *testing.T) {
@@ -229,6 +233,111 @@ func TestGenerateCommitUsesSelectedProvider(t *testing.T) {
 	}
 	if gotBody.Input != "context=extra diff=diff" {
 		t.Fatalf("Input = %q, want rendered prompt", gotBody.Input)
+	}
+}
+
+func TestSelectOptionReturnsCommitError(t *testing.T) {
+	commitErr := errors.New("commit failed")
+	runSelection := func(string) (selection.Result, error) {
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	createCommit := func(string) error {
+		return commitErr
+	}
+
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: test commit"}`), nil
+	}))
+
+	tmpl := template.Must(template.New("prompt").Parse("{{.Diff}}"))
+	err := selectOption(tmpl, "diff", providerOptions{
+		Provider: "openai",
+		Model:    "gpt-5.5",
+		APIKey:   "sk-test",
+	}, "", runSelection, createCommit)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
+	}
+}
+
+func TestSelectOptionReturnsCommitErrorAfterEdit(t *testing.T) {
+	commitErr := errors.New("edited commit failed")
+	runSelection := func(string) (selection.Result, error) {
+		return selection.Result{Choice: selection.Edit}, nil
+	}
+	createCommit := func(string) error {
+		return commitErr
+	}
+
+	editorPath := filepath.Join(t.TempDir(), "editor")
+	if err := os.WriteFile(editorPath, []byte("#!/bin/sh\nprintf '%s' 'edited commit' > \"$1\"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("EDITOR", editorPath)
+
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: test commit"}`), nil
+	}))
+
+	tmpl := template.Must(template.New("prompt").Parse("{{.Diff}}"))
+	err := selectOption(tmpl, "diff", providerOptions{
+		Provider: "openai",
+		Model:    "gpt-5.5",
+		APIKey:   "sk-test",
+	}, "", runSelection, createCommit)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
+	}
+}
+
+func TestRunPushDoesNotPushAfterCommitError(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "remote", "add", "origin", filepath.Join(t.TempDir(), "missing.git"))
+	filePath := filepath.Join(repoDir, "change.txt")
+	if err := os.WriteFile(filePath, []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+
+	commitErr := errors.New("commit failed")
+	runSelection := func(string) (selection.Result, error) {
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	createCommit := func(string) error {
+		return commitErr
+	}
+
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() {
+			<-done
+		}
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: test commit"}`), nil
+	}))
+
+	t.Chdir(repoDir)
+	err := runPush(Options{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+	}, runSelection, createCommit)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("RunPush() error = %v, want %v", err, commitErr)
 	}
 }
 
