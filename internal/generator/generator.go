@@ -67,6 +67,10 @@ type promptData struct {
 }
 
 func Run(option Options) error {
+	return run(option, selection.Run, makeCommit)
+}
+
+func run(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
 	prompt, err := getPrompt(option.Language)
 	if err != nil {
 		return err
@@ -83,8 +87,19 @@ func Run(option Options) error {
 		Provider: option.Provider,
 		Model:    option.Model,
 		APIKey:   option.APIKey,
-	}, option.Context)
+	}, option.Context, runSelection, createCommit)
 	return err
+}
+
+func RunPush(option Options) error {
+	return runPush(option, selection.Run, makeCommit)
+}
+
+func runPush(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
+	if err := run(option, runSelection, createCommit); err != nil {
+		return err
+	}
+	return Push()
 }
 
 func getPrompt(language string) (string, error) {
@@ -95,27 +110,38 @@ func getPrompt(language string) (string, error) {
 	return prompt, nil
 }
 
-func selectOption(tmpl *template.Template, diff string, provider providerOptions, context string) error {
+func selectOption(
+	tmpl *template.Template,
+	diff string,
+	provider providerOptions,
+	context string,
+	runSelection func(string) (selection.Result, error),
+	createCommit func(string) error,
+) error {
 	end := false
 	for end == false {
 		commit, err := generateCommit(tmpl, diff, provider, context)
 		if err != nil {
 			return err
 		}
-		result, err := selection.Run(commit)
+		result, err := runSelection(commit)
 		if err != nil {
 			return err
 		}
 		switch result.Choice {
 		case selection.Accept:
-			makeCommit(commit)
+			if err := createCommit(commit); err != nil {
+				return err
+			}
 			end = true
 		case selection.Edit:
 			updatedCommit, err := edit(commit)
 			if err != nil {
 				return err
 			}
-			makeCommit(updatedCommit)
+			if err := createCommit(updatedCommit); err != nil {
+				return err
+			}
 			end = true
 		}
 	}
