@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "skills": {
+    "close-issue": "8bed60ca006f8723a1acb25d88fd02a1491c6919ff7aed3e0fd3ee81a3c02f95",
+    "code-review": "9b627e5d5f64bee777c251cb249fa9371eb19c00fbcc7ae19d04331e56c0fd26",
+    "codebase-design": "814a4254c2e1f335620640ae2b658f59aa40afa3d136f0d67cfdc24a7d1c3b67",
+    "domain-modeling": "7fdeabdeb6be303e327f282e766507929577356615521fcb1abd2ada9ab443b9",
+    "fix-review": "2a020202caf0ed77b2e4405bdd143326bb8d4e815d96ee3ee6f9c0a6d7284aff",
+    "go-style": "a63dfe57bc70199c5952bc24c42bed318a79fe0b1d8ad0a5dd72b7e6298fa0ed",
+    "grill-me": "056d334e5d235e66ecd359f096d1b3d63f31500ec0d97504775351014869d465",
+    "grill-with-docs": "25d2f72f125680eca8b256ad235d35aa5aff09ec2c998d362f5feea14015fcce",
+    "grilling": "6363d5dd9c479161abd32030d83e81a59f2805159731fb75c76519f36f3caa15",
+    "handoff": "7caab20cd3b98bd88902e345a4b9063fd2e78e557a062f5b5e706008766042bd",
+    "implement": "5d59d262d858ce37f5f4cb61e72a499242482ab69d39ebb2763b4b73d4546818",
+    "improve-codebase-architecture": "9ea8c8491bbf8aeb631a38ff859447a6e3c3fb04e3fece2ffae378540aeadfa8",
+    "refactoring": "f095be69552118e821f193cdb41972928c740240183dd0b6ce43d798b0c8115b",
+    "tdd": "a6ca2010593653dcf83c5fbfb7b8bb116f704d9a115141503537271c770c78fe",
+    "to-spec": "175420c9235700725d7446a8fa7426a5633232105b376b7fce01deaa6d030e09",
+    "to-tickets": "cb1fbe682d29db93c25b4da5965e695c7ba11b1338935847519ff0aabf7bd783",
+    "writing-for-agents": "286d21f904d7064b4141f05b1d3fbde847f626d2f941344f4be4439f50865897"
+  }
+}
