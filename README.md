@@ -14,6 +14,18 @@ A CLI tool that uses an LLM provider to generate [Conventional Commits](https://
 - [Git](https://git-scm.com)
 - [Ollama](https://ollama.com) running locally with at least one model pulled, or an API key for a hosted provider
 
+## Quality gates
+
+Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run one.
+
+- `format` requires golangci-lint v2.13.1+ with its `gofmt` and `goimports` formatters.
+- `vet` runs `go vet ./...` and requires Go 1.25.2+.
+- `style` is not configured yet.
+- `complexity` is not configured yet.
+- `coverage` is not configured yet.
+- `tests` runs `go test ./...` and requires Go 1.25.2+.
+- `architecture` is not configured yet.
+
 ## Installation
 
 ```bash
