@@ -9,14 +9,148 @@ results=()
 notes=()
 failed_gates=()
 
+require_command() {
+  local tool=$1
+  local install_command=$2
+
+  if command -v "$tool" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  printf '%s is required; install with: %s\n' "$tool" "$install_command"
+  return 1
+}
+
+first_go_diagnostic() {
+  local output=$1
+  local line
+
+  while IFS= read -r line; do
+    if [[ "$line" == *.go:* ]]; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done <<<"$output"
+
+  return 1
+}
+
+first_format_file() {
+  local output=$1
+  local line
+
+  while IFS= read -r line; do
+    case "$line" in
+      'diff --git a/'*)
+        line=${line#diff --git a/}
+        printf '%s\n' "${line%% b/*}"
+        return 0
+        ;;
+      '--- '*)
+        line=${line#--- }
+        line=${line# a/}
+        line=${line#./}
+        line=${line%.orig}
+        if [[ "$line" != "/dev/null" ]]; then
+          printf '%s\n' "$line"
+          return 0
+        fi
+        ;;
+    esac
+  done <<<"$output"
+
+  return 1
+}
+
+first_test_failure() {
+  local output=$1
+  local line
+
+  while IFS= read -r line; do
+    case "$line" in
+      '--- FAIL: '*)
+        line=${line#--- FAIL: }
+        printf '%s\n' "${line%% (*}"
+        return 0
+        ;;
+    esac
+  done <<<"$output"
+
+  while IFS= read -r line; do
+    case "$line" in
+      FAIL$'\t'*|FAIL\ *)
+        line=${line#FAIL}
+        line=${line#"${line%%[![:space:]]*}"}
+        if [[ -n "$line" ]]; then
+          printf '%s\n' "${line%%[[:space:]]*}"
+          return 0
+        fi
+        ;;
+    esac
+  done <<<"$output"
+
+  return 1
+}
+
 format() {
-  # Put the format command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  local output
+  local exit_code
+  local file
+
+  if ! require_command golangci-lint 'go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1'; then
+    return 1
+  fi
+
+  if output=$(golangci-lint --color=never fmt --diff 2>&1); then
+    exit_code=0
+  else
+    exit_code=$?
+  fi
+
+  if (( exit_code != 0 )); then
+    if file=$(first_format_file "$output"); then
+      printf 'formatting required: %s\n' "$file"
+    elif [[ -n "$output" ]]; then
+      printf 'golangci-lint fmt failed: %s\n' "$(first_line "$output")"
+    else
+      printf '%s\n' 'golangci-lint fmt failed'
+    fi
+    return 1
+  fi
+
+  if [[ -n "$output" ]]; then
+    if file=$(first_format_file "$output"); then
+      printf 'formatting required: %s\n' "$file"
+    else
+      printf 'formatting required: %s\n' "$(first_line "$output")"
+    fi
+    return 1
+  fi
+
+  printf '%s\n' 'PASS  gofmt, goimports'
 }
 
 vet() {
-  # Put the vet command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  local output
+  local diagnostic
+
+  if ! require_command go 'install Go 1.25.2+ from https://go.dev/dl/'; then
+    return 1
+  fi
+
+  if output=$(go vet ./... 2>&1); then
+    printf '%s\n' 'PASS  go vet ./...'
+    return 0
+  fi
+
+  if diagnostic=$(first_go_diagnostic "$output"); then
+    printf '%s\n' "$diagnostic"
+  elif [[ -n "$output" ]]; then
+    printf '%s\n' "$(first_line "$output")"
+  else
+    printf '%s\n' 'go vet ./... failed'
+  fi
+  return 1
 }
 
 style() {
@@ -35,8 +169,29 @@ coverage() {
 }
 
 tests() {
-  # Put the tests command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  local output
+  local failure
+  local diagnostic
+
+  if ! require_command go 'install Go 1.25.2+ from https://go.dev/dl/'; then
+    return 1
+  fi
+
+  if output=$(go test ./... 2>&1); then
+    printf '%s\n' 'PASS  go test ./...'
+    return 0
+  fi
+
+  if failure=$(first_test_failure "$output"); then
+    printf 'go test failed: %s\n' "$failure"
+  elif diagnostic=$(first_go_diagnostic "$output"); then
+    printf '%s\n' "$diagnostic"
+  elif [[ -n "$output" ]]; then
+    printf '%s\n' "$(first_line "$output")"
+  else
+    printf '%s\n' 'go test ./... failed'
+  fi
+  return 1
 }
 
 architecture() {
