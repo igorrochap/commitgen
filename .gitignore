@@ -1,2 +1,7 @@
 .cache/
-.syl/runs/
+.syl
+CLAUDE.md
+AGENTS.md
+.agents
+.claude
+skills-lock.json
