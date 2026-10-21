@@ -22,7 +22,7 @@ Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run
 - `vet` runs `go vet ./...` and requires Go 1.25.2+.
 - `style` is not configured yet.
 - `complexity` is not configured yet.
-- `coverage` is not configured yet.
+- `coverage` runs `go test -coverpkg=./... -coverprofile=.cache/coverage.out ./...` to measure statement coverage across the whole module, including packages without test files, and enforces a 54% floor.
 - `tests` runs `go test ./...` and requires Go 1.25.2+.
 - `architecture` is not configured yet.
 
