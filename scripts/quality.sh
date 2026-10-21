@@ -3,6 +3,8 @@
 # Keep running after a failed gate so the summary can report every gate.
 set -u
 
+readonly COVERAGE_FLOOR=54
+
 gates=(format vet style complexity coverage tests architecture)
 selected_gates=()
 results=()
@@ -164,8 +166,47 @@ complexity() {
 }
 
 coverage() {
-  # Put the coverage command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  local coverage_profile=.cache/coverage.out
+  local output
+  local measured_coverage
+  local go_root
+  local PATH="$PATH"
+
+  if ! require_command go 'install Go 1.25.2+ from https://go.dev/dl/'; then
+    return 1
+  fi
+
+  if go_root=$(go env GOROOT 2>/dev/null) && [[ -x "$go_root/bin/go" ]]; then
+    PATH="$go_root/bin:$PATH"
+  fi
+
+  if ! mkdir -p .cache; then
+    printf '%s\n' 'could not create .cache for the coverage profile'
+    return 1
+  fi
+
+  if ! go test -coverpkg=./... -coverprofile="$coverage_profile" ./... >/dev/null 2>&1; then
+    printf '%s\n' 'test suite failed'
+    return 1
+  fi
+
+  if ! output=$(go tool cover -func="$coverage_profile" 2>&1); then
+    printf 'could not read coverage profile: %s\n' "$(first_line "$output")"
+    return 1
+  fi
+
+  if ! measured_coverage=$(awk '$1 == "total:" { gsub(/%/, "", $3); print $3; found = 1 } END { if (!found) exit 1 }' <<<"$output"); then
+    printf 'could not read total coverage from %s\n' "$coverage_profile"
+    return 1
+  fi
+
+  if awk -v measured="$measured_coverage" -v floor="$COVERAGE_FLOOR" 'BEGIN { exit !(measured >= floor) }'; then
+    printf 'PASS  %s%% (floor %d%%)\n' "$measured_coverage" "$COVERAGE_FLOOR"
+    return 0
+  fi
+
+  printf 'coverage %s%% is below floor %d%%\n' "$measured_coverage" "$COVERAGE_FLOOR"
+  return 1
 }
 
 tests() {
