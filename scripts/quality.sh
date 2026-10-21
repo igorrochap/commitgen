@@ -4,6 +4,8 @@
 set -u
 
 readonly COVERAGE_FLOOR=54
+readonly STYLE_LINTERS=errcheck,staticcheck,revive,gocritic,errorlint,unused,ineffassign
+readonly COMPLEXITY_LINTERS=gocyclo,gocognit
 
 gates=(format vet style complexity coverage tests architecture)
 selected_gates=()
@@ -157,13 +159,205 @@ vet() {
 }
 
 style() {
-  # Put the style command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  diff_gate "$STYLE_LINTERS"
 }
 
 complexity() {
-  # Put the complexity command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  diff_gate "$COMPLEXITY_LINTERS"
+}
+
+select_quality_base() {
+  local requested_ref
+  local candidate
+  local commit
+
+  if [[ -n "${QUALITY_BASE_REF:-}" ]]; then
+    requested_ref=$QUALITY_BASE_REF
+    if ! commit=$(git rev-parse --verify --quiet --end-of-options "${requested_ref}^{commit}" 2>/dev/null); then
+      printf "base ref '%s' does not exist\n" "$requested_ref"
+      return 1
+    fi
+    QUALITY_BASE_NAME=$requested_ref
+    QUALITY_BASE_COMMIT=$commit
+    return 0
+  fi
+
+  if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
+    requested_ref=$GITHUB_BASE_REF
+    for candidate in "origin/$requested_ref" "$requested_ref"; do
+      if commit=$(git rev-parse --verify --quiet --end-of-options "${candidate}^{commit}" 2>/dev/null); then
+        QUALITY_BASE_NAME=$candidate
+        QUALITY_BASE_COMMIT=$commit
+        return 0
+      fi
+    done
+    printf "base ref '%s' does not exist (tried 'origin/%s' and '%s')\n" \
+      "$requested_ref" "$requested_ref" "$requested_ref"
+    return 1
+  fi
+
+  for candidate in origin/main main; do
+    if commit=$(git rev-parse --verify --quiet --end-of-options "${candidate}^{commit}" 2>/dev/null); then
+      QUALITY_BASE_NAME=$candidate
+      QUALITY_BASE_COMMIT=$commit
+      return 0
+    fi
+  done
+
+  printf '%s\n' "base refs 'origin/main' and 'main' do not exist"
+  return 1
+}
+
+append_unique_file() {
+  local candidate=$1
+  local existing
+
+  for existing in "${changed_files[@]-}"; do
+    if [[ "$candidate" == "$existing" ]]; then
+      return 0
+    fi
+  done
+  changed_files+=("$candidate")
+}
+
+diff_gate() {
+  local linters=$1
+  local repository_root
+  local merge_base
+  local temporary_directory
+  local tracked_paths
+  local untracked_paths
+  local file
+  local directory
+  local exit_code
+  local output
+  local existing_directory
+  local found_directory
+  local -a changed_files=()
+  local -a package_directories=()
+
+  if ! repository_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    printf '%s\n' 'diff gate must run inside a git repository'
+    return 1
+  fi
+  if ! cd "$repository_root"; then
+    printf 'could not change to repository root: %s\n' "$repository_root"
+    return 1
+  fi
+
+  if ! select_quality_base; then
+    return 1
+  fi
+
+  if ! merge_base=$(git merge-base HEAD "$QUALITY_BASE_COMMIT" 2>/dev/null); then
+    printf "could not find a merge base for HEAD and '%s'; fetch the full history and retry\n" \
+      "$QUALITY_BASE_NAME"
+    return 1
+  fi
+
+  if ! temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/quality.XXXXXX"); then
+    printf '%s\n' 'could not create temporary files for the diff gate'
+    return 1
+  fi
+  tracked_paths=$temporary_directory/tracked-paths
+  untracked_paths=$temporary_directory/untracked-paths
+  if ! git diff --name-only --diff-filter=ACMR --find-renames -z "$merge_base" -- '*.go' >"$tracked_paths"; then
+    printf '%s\n' 'could not list changed Go files'
+    rm -rf "$temporary_directory"
+    return 1
+  fi
+  if ! git ls-files --others --exclude-standard -z -- '*.go' >"$untracked_paths"; then
+    printf '%s\n' 'could not list untracked Go files'
+    rm -rf "$temporary_directory"
+    return 1
+  fi
+
+  while IFS= read -r -d '' file; do
+    if [[ -f "$file" ]]; then
+      append_unique_file "$file"
+    fi
+  done <"$tracked_paths"
+  while IFS= read -r -d '' file; do
+    if [[ -f "$file" ]]; then
+      append_unique_file "$file"
+    fi
+  done <"$untracked_paths"
+
+  local changed_file_count=${#changed_files[@]}
+  if (( changed_file_count == 0 )); then
+    printf 'PASS  base %s, 0 changed Go files\n' "$QUALITY_BASE_NAME"
+    rm -rf "$temporary_directory"
+    return 0
+  fi
+
+  for file in "${changed_files[@]}"; do
+    directory=${file%/*}
+    if [[ "$directory" == "$file" ]]; then
+      directory=.
+    fi
+    found_directory=false
+    for existing_directory in "${package_directories[@]-}"; do
+      if [[ "$directory" == "$existing_directory" ]]; then
+        found_directory=true
+        break
+      fi
+    done
+    if [[ "$found_directory" == false ]]; then
+      package_directories+=("./$directory")
+    fi
+  done
+
+  if ! require_command golangci-lint 'go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1'; then
+    printf 'FAIL  base %s, %d changed Go files\n' "$QUALITY_BASE_NAME" "$changed_file_count"
+    rm -rf "$temporary_directory"
+    return 1
+  fi
+
+  local patch_file=$temporary_directory/changes.patch
+  if ! git diff --no-ext-diff --binary --find-renames --diff-filter=ACMR "$merge_base" -- '*.go' >"$patch_file"; then
+    printf '%s\n' 'could not build the Go change patch'
+    rm -rf "$temporary_directory"
+    return 1
+  fi
+  for file in "${changed_files[@]}"; do
+    if git ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+      continue
+    fi
+
+    git diff --no-index --binary -- /dev/null "$file" >>"$patch_file"
+    exit_code=$?
+    if (( exit_code > 1 )); then
+      printf 'could not add untracked file to the change patch: %s\n' "$file"
+      rm -rf "$temporary_directory"
+      return 1
+    fi
+  done
+
+  output=$(golangci-lint run \
+    --color=never \
+    --enable-only "$linters" \
+    --new-from-patch "$patch_file" \
+    --whole-files \
+    --tests=true \
+    --show-stats=false \
+    --max-issues-per-linter=0 \
+    --max-same-issues=0 \
+    "${package_directories[@]}" 2>&1)
+  exit_code=$?
+  if (( exit_code == 0 )); then
+    printf 'PASS  base %s, %d changed Go files\n' "$QUALITY_BASE_NAME" "$changed_file_count"
+    rm -rf "$temporary_directory"
+    return 0
+  fi
+
+  printf 'FAIL  base %s, %d changed Go files\n' "$QUALITY_BASE_NAME" "$changed_file_count"
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output"
+  else
+    printf '%s\n' 'golangci-lint failed without diagnostics'
+  fi
+  rm -rf "$temporary_directory"
+  return "$exit_code"
 }
 
 coverage() {
@@ -285,10 +479,18 @@ remove_status_prefix() {
   case "$value" in
     SKIP*) value=${value#SKIP} ;;
     PASS*) value=${value#PASS} ;;
+    FAIL*) value=${value#FAIL} ;;
   esac
   value=${value# }
   value=${value# }
   printf '%s\n' "$value"
+}
+
+is_diagnostic_gate() {
+  case "$1" in
+    architecture|style|complexity) return 0 ;;
+  esac
+  return 1
 }
 
 run_gate() {
@@ -315,6 +517,9 @@ run_gate() {
   if (( exit_code != 0 )); then
     result=FAIL
     note=$(first_line "$report")
+    if is_diagnostic_gate "$gate"; then
+      note=$(remove_status_prefix "$note")
+    fi
     if [[ -z "$note" ]]; then
       note="command failed"
     fi
@@ -362,7 +567,7 @@ build_summary() {
     fi
     summary+=$'\n'"$line"
 
-    if [[ "$gate" == architecture && "$result" == FAIL ]]; then
+    if is_diagnostic_gate "$gate" && [[ "$result" == FAIL ]]; then
       report_line_index=0
       while IFS= read -r report_line; do
         if (( report_line_index > 0 )); then

@@ -4,3 +4,21 @@ formatters:
   enable:
     - gofmt
     - goimports
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - staticcheck
+    - revive
+    - gocritic
+    - errorlint
+    - unused
+    - ineffassign
+    - gocyclo
+    - gocognit
+  settings:
+    gocyclo:
+      min-complexity: 10
+    gocognit:
+      min-complexity: 15
