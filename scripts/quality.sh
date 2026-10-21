@@ -9,6 +9,7 @@ gates=(format vet style complexity coverage tests architecture)
 selected_gates=()
 results=()
 notes=()
+reports=()
 failed_gates=()
 
 require_command() {
@@ -236,8 +237,23 @@ tests() {
 }
 
 architecture() {
-  # Put the architecture command for this project here.
-  printf '%s\n' "SKIP  not configured"
+  local output
+
+  if ! require_command go 'install Go 1.25.2+ from https://go.dev/dl/'; then
+    return 1
+  fi
+
+  if output=$(go run ./scripts/architecture 2>&1); then
+    printf '%s\n' "$output"
+    return 0
+  fi
+
+  if [[ -n "$output" ]]; then
+    printf '%s\n' "$output"
+  else
+    printf '%s\n' 'architecture checker failed'
+  fi
+  return 1
 }
 
 is_known_gate() {
@@ -319,6 +335,7 @@ run_gate() {
 
   results+=("$result")
   notes+=("$note")
+  reports+=("$report")
   if [[ "$result" == FAIL ]]; then
     failed_gates+=("$gate")
   fi
@@ -332,6 +349,8 @@ build_summary() {
   local result
   local note
   local line
+  local report_line
+  local report_line_index
 
   for (( index = 0; index < ${#selected_gates[@]}; index++ )); do
     gate=${selected_gates[$index]}
@@ -342,6 +361,16 @@ build_summary() {
       line+="   $note"
     fi
     summary+=$'\n'"$line"
+
+    if [[ "$gate" == architecture && "$result" == FAIL ]]; then
+      report_line_index=0
+      while IFS= read -r report_line; do
+        if (( report_line_index > 0 )); then
+          summary+=$'\n'"    $report_line"
+        fi
+        report_line_index=$((report_line_index + 1))
+      done <<<"${reports[$index]}"
+    fi
   done
 
   if (( ${#failed_gates[@]} > 0 )); then

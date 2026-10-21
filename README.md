@@ -24,7 +24,13 @@ Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run
 - `complexity` is not configured yet.
 - `coverage` runs `go test -coverpkg=./... -coverprofile=.cache/coverage.out ./...` to measure statement coverage across the whole module, including packages without test files, and enforces a 54% floor.
 - `tests` runs `go test ./...` and requires Go 1.25.2+.
-- `architecture` is not configured yet.
+- `architecture` runs the Go AST checker in `scripts/architecture` and checks imports across all Go source and test files:
+  - R1: Packages under `internal/` cannot import `cmd`; internal packages stay independent from CLI wiring.
+  - R2: `internal/config`, `internal/prompts`, `internal/loading`, `internal/selection`, and `internal/updatecheck` cannot import other module packages; these foundational packages stay reusable.
+  - R3: `internal/generator` can import only `internal/loading`, `internal/prompts`, and `internal/selection`; generation stays within its declared collaborators.
+  - R4: Only `cmd` can import `github.com/spf13/cobra`; Cobra-specific wiring stays at the CLI boundary.
+  - R5: Only `internal/loading` and `internal/selection` can import `github.com/charmbracelet/*`; terminal UI dependencies stay behind packages that can isolate TTY behavior.
+  - R6: The root `main` package can import only `cmd` from this module; the executable entry point stays a small delegate.
 
 ## Installation
 
