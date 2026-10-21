@@ -1,3 +1,4 @@
+// Package main implements the repository's architecture dependency checker.
 package main
 
 import (
@@ -98,18 +99,7 @@ func findViolations(root string) ([]violation, error) {
 	fileSet := token.NewFileSet()
 
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if entry.IsDir() && path != root && skipDirectory(entry.Name()) {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".go" {
-			return nil
-		}
-
-		fileViolations, err := checkFile(root, path, fileSet)
+		fileViolations, err := collectWalkedFileViolations(root, path, entry, walkErr, fileSet)
 		if err != nil {
 			return err
 		}
@@ -131,6 +121,26 @@ func findViolations(root string) ([]violation, error) {
 	})
 
 	return violations, nil
+}
+
+func collectWalkedFileViolations(
+	root string,
+	path string,
+	entry fs.DirEntry,
+	walkErr error,
+	fileSet *token.FileSet,
+) ([]violation, error) {
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	if entry.IsDir() && path != root && skipDirectory(entry.Name()) {
+		return nil, filepath.SkipDir
+	}
+	if entry.IsDir() || filepath.Ext(path) != ".go" {
+		return nil, nil
+	}
+
+	return checkFile(root, path, fileSet)
 }
 
 func checkFile(root, path string, fileSet *token.FileSet) ([]violation, error) {
@@ -180,9 +190,24 @@ func packagePath(directory string) string {
 
 func brokenRule(importer, imported string) (architectureRule, bool) {
 	commandPackage := modulePath + "/cmd"
-	loadingPackage := modulePath + "/internal/loading"
-	selectionPackage := modulePath + "/internal/selection"
+	rule, violatesRule := brokenInternalRule(importer, imported)
+	if violatesRule {
+		return rule, true
+	}
 
+	rule, violatesRule = brokenExternalRule(importer, imported)
+	if violatesRule {
+		return rule, true
+	}
+
+	if importer == modulePath && isModuleImport(imported) && imported != commandPackage {
+		return architectureRules["R6"], true
+	}
+
+	return architectureRule{}, false
+}
+
+func brokenInternalRule(importer, imported string) (architectureRule, bool) {
 	if strings.HasPrefix(importer, modulePath+"/internal/") && isCommandPackage(imported) {
 		return architectureRules["R1"], true
 	}
@@ -196,6 +221,14 @@ func brokenRule(importer, imported string) (architectureRule, bool) {
 		return architectureRules["R3"], true
 	}
 
+	return architectureRule{}, false
+}
+
+func brokenExternalRule(importer, imported string) (architectureRule, bool) {
+	commandPackage := modulePath + "/cmd"
+	loadingPackage := modulePath + "/internal/loading"
+	selectionPackage := modulePath + "/internal/selection"
+
 	if imported == "github.com/spf13/cobra" && importer != commandPackage {
 		return architectureRules["R4"], true
 	}
@@ -203,10 +236,6 @@ func brokenRule(importer, imported string) (architectureRule, bool) {
 	if strings.HasPrefix(imported, "github.com/charmbracelet/") &&
 		importer != loadingPackage && importer != selectionPackage {
 		return architectureRules["R5"], true
-	}
-
-	if importer == modulePath && isModuleImport(imported) && imported != commandPackage {
-		return architectureRules["R6"], true
 	}
 
 	return architectureRule{}, false
