@@ -44,12 +44,8 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 }
 
-func runConfigSet(cmd *cobra.Command, args []string) error {
-	languageChanged := cmd.Flags().Changed("language")
-	modelChanged := cmd.Flags().Changed("model")
-	providerChanged := cmd.Flags().Changed("provider")
-	apiKeyChanged := cmd.Flags().Changed("api-key")
-	if !languageChanged && !modelChanged && !providerChanged && !apiKeyChanged {
+func runConfigSet(cmd *cobra.Command, _ []string) error {
+	if !hasConfigSetChanges(cmd) {
 		return fmt.Errorf("provide --language, --model, --provider, --api-key, or a combination")
 	}
 
@@ -62,55 +58,93 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if languageChanged {
-		if strings.TrimSpace(configLanguage) == "" {
-			return fmt.Errorf("language cannot be empty")
-		}
-		if !prompts.IsSupported(configLanguage) {
-			return fmt.Errorf("language %s not supported", configLanguage)
-		}
-		cfg.Language = configLanguage
-	}
-
-	if modelChanged {
-		configModel = strings.TrimSpace(configModel)
-		if configModel == "" {
-			return fmt.Errorf("model cannot be empty")
-		}
-		cfg.Model = configModel
-	}
-
-	if providerChanged {
-		configProvider = strings.ToLower(strings.TrimSpace(configProvider))
-		if configProvider == "" {
-			return fmt.Errorf("provider cannot be empty")
-		}
-		if !appconfig.IsSupportedProvider(configProvider) {
-			return fmt.Errorf("provider %s not supported", configProvider)
-		}
-		cfg.Provider = configProvider
-	}
-
-	if apiKeyChanged {
-		configAPIKey = strings.TrimSpace(configAPIKey)
-		if configAPIKey == "" {
-			return fmt.Errorf("api key cannot be empty")
-		}
-		if cfg.APIKeys == nil {
-			cfg.APIKeys = map[string]string{}
-		}
-		cfg.APIKeys[cfg.Provider] = configAPIKey
+	if err := applyConfigSetChanges(cmd, &cfg); err != nil {
+		return err
 	}
 
 	if err := appconfig.SaveFile(path, cfg); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Defaults updated: language=%s model=%s provider=%s\n", cfg.Language, cfg.Model, cfg.Provider)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Defaults updated: language=%s model=%s provider=%s\n", cfg.Language, cfg.Model, cfg.Provider)
+	return err
+}
+
+func hasConfigSetChanges(cmd *cobra.Command) bool {
+	return cmd.Flags().Changed("language") || cmd.Flags().Changed("model") ||
+		cmd.Flags().Changed("provider") || cmd.Flags().Changed("api-key")
+}
+
+func applyConfigSetChanges(cmd *cobra.Command, cfg *appconfig.Config) error {
+	if err := updateConfigLanguage(cmd, cfg); err != nil {
+		return err
+	}
+	if err := updateConfigModel(cmd, cfg); err != nil {
+		return err
+	}
+	if err := updateConfigProvider(cmd, cfg); err != nil {
+		return err
+	}
+	return updateConfigAPIKey(cmd, cfg)
+}
+
+func updateConfigLanguage(cmd *cobra.Command, cfg *appconfig.Config) error {
+	if !cmd.Flags().Changed("language") {
+		return nil
+	}
+	if strings.TrimSpace(configLanguage) == "" {
+		return fmt.Errorf("language cannot be empty")
+	}
+	if !prompts.IsSupported(configLanguage) {
+		return fmt.Errorf("language %s not supported", configLanguage)
+	}
+	cfg.Language = configLanguage
 	return nil
 }
 
-func runConfigShow(cmd *cobra.Command, args []string) error {
+func updateConfigModel(cmd *cobra.Command, cfg *appconfig.Config) error {
+	if !cmd.Flags().Changed("model") {
+		return nil
+	}
+	configModel = strings.TrimSpace(configModel)
+	if configModel == "" {
+		return fmt.Errorf("model cannot be empty")
+	}
+	cfg.Model = configModel
+	return nil
+}
+
+func updateConfigProvider(cmd *cobra.Command, cfg *appconfig.Config) error {
+	if !cmd.Flags().Changed("provider") {
+		return nil
+	}
+	configProvider = strings.ToLower(strings.TrimSpace(configProvider))
+	if configProvider == "" {
+		return fmt.Errorf("provider cannot be empty")
+	}
+	if !appconfig.IsSupportedProvider(configProvider) {
+		return fmt.Errorf("provider %s not supported", configProvider)
+	}
+	cfg.Provider = configProvider
+	return nil
+}
+
+func updateConfigAPIKey(cmd *cobra.Command, cfg *appconfig.Config) error {
+	if !cmd.Flags().Changed("api-key") {
+		return nil
+	}
+	configAPIKey = strings.TrimSpace(configAPIKey)
+	if configAPIKey == "" {
+		return fmt.Errorf("api key cannot be empty")
+	}
+	if cfg.APIKeys == nil {
+		cfg.APIKeys = map[string]string{}
+	}
+	cfg.APIKeys[cfg.Provider] = configAPIKey
+	return nil
+}
+
+func runConfigShow(cmd *cobra.Command, _ []string) error {
 	path, err := configPath()
 	if err != nil {
 		return err
@@ -124,6 +158,6 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	if cfg.APIKeys[cfg.Provider] != "" {
 		apiKeyStatus = "set"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "language=%s\nmodel=%s\nprovider=%s\napi_key=%s\nconfig=%s\n", cfg.Language, cfg.Model, cfg.Provider, apiKeyStatus, path)
-	return nil
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "language=%s\nmodel=%s\nprovider=%s\napi_key=%s\nconfig=%s\n", cfg.Language, cfg.Model, cfg.Provider, apiKeyStatus, path)
+	return err
 }

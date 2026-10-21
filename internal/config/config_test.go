@@ -82,3 +82,39 @@ func TestSaveFileCreatesDirectoryAndRoundTrips(t *testing.T) {
 		t.Fatalf("LoadFile() = %+v, want %+v", cfg, want)
 	}
 }
+
+func TestLoadUsesUserConfigPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	userConfigDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatalf("UserConfigDir() error = %v", err)
+	}
+	path, err := Path()
+	if err != nil {
+		t.Fatalf("Path() error = %v", err)
+	}
+	wantPath := filepath.Join(userConfigDir, "commitgen", "config.json")
+	if path != wantPath {
+		t.Fatalf("Path() = %q, want %q", path, wantPath)
+	}
+
+	want := Config{
+		Language: "pt-BR",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKeys:  map[string]string{},
+	}
+	if err := SaveFile(path, want); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !reflect.DeepEqual(cfg, want) {
+		t.Fatalf("Load() = %+v, want %+v", cfg, want)
+	}
+}
