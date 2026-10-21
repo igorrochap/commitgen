@@ -18,7 +18,7 @@ A CLI tool that uses an LLM provider to generate [Conventional Commits](https://
 
 Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run one.
 
-- `format` requires golangci-lint v2.13.1+ with its `gofmt` and `goimports` formatters.
+- `format` requires golangci-lint v2.13.1 with its `gofmt` and `goimports` formatters. CI installs this exact version.
 - `vet` runs `go vet ./...` and requires Go 1.25.2+.
 - `style` runs `errcheck`, `staticcheck`, `revive`, `gocritic`, `errorlint`, `unused`, and `ineffassign` on changed Go files.
 - `complexity` runs `gocyclo` (limit 10) and `gocognit` (limit 15) on changed Go files, including tests. A function at a limit passes; only a function above it fails.
