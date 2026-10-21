@@ -15,7 +15,7 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update commitgen to the latest version",
 	Long:  "Downloads and installs the latest version of commitgen via `go install`.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		if _, err := exec.LookPath("go"); err != nil {
 			return fmt.Errorf("go toolchain not found in PATH; install Go to use `commitgen update`")
 		}

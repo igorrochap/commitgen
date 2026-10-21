@@ -34,18 +34,12 @@ func TestConfigSetSavesDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	withConfigPath(t, path)
 	cmd := newConfigSetTestCommand()
-	if err := cmd.Flags().Set("language", "pt-BR"); err != nil {
-		t.Fatalf("Set(language) error = %v", err)
-	}
-	if err := cmd.Flags().Set("model", "llama3.2"); err != nil {
-		t.Fatalf("Set(model) error = %v", err)
-	}
-	if err := cmd.Flags().Set("provider", "openai"); err != nil {
-		t.Fatalf("Set(provider) error = %v", err)
-	}
-	if err := cmd.Flags().Set("api-key", "sk-test"); err != nil {
-		t.Fatalf("Set(api-key) error = %v", err)
-	}
+	setFlags(t, cmd, map[string]string{
+		"language": "pt-BR",
+		"model":    "llama3.2",
+		"provider": "openai",
+		"api-key":  "sk-test",
+	})
 
 	if err := runConfigSet(cmd, nil); err != nil {
 		t.Fatalf("runConfigSet() error = %v", err)
@@ -55,17 +49,83 @@ func TestConfigSetSavesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFile() error = %v", err)
 	}
-	if cfg.Language != "pt-BR" {
-		t.Fatalf("Language = %q, want pt-BR", cfg.Language)
+	assertStringValue(t, "Language", cfg.Language, "pt-BR")
+	assertStringValue(t, "Model", cfg.Model, "llama3.2")
+	assertStringValue(t, "Provider", cfg.Provider, "openai")
+	assertStringValue(t, "APIKeys[openai]", cfg.APIKeys["openai"], "sk-test")
+}
+
+func TestConfigSetStoresAPIKeyUnderSelectedProvider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	withConfigPath(t, path)
+	if err := appconfig.SaveFile(path, appconfig.Config{
+		Language: "en",
+		Model:    "gemini-3.5-flash-lite",
+		Provider: "gemini",
+		APIKeys: map[string]string{
+			"gemini": "gemini-key",
+		},
+	}); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
 	}
-	if cfg.Model != "llama3.2" {
-		t.Fatalf("Model = %q, want llama3.2", cfg.Model)
+
+	cmd := newConfigSetTestCommand()
+	setFlags(t, cmd, map[string]string{
+		"provider": "openai",
+		"api-key":  "openai-key",
+	})
+	if err := runConfigSet(cmd, nil); err != nil {
+		t.Fatalf("runConfigSet() error = %v", err)
 	}
-	if cfg.Provider != "openai" {
-		t.Fatalf("Provider = %q, want openai", cfg.Provider)
+
+	cfg, err := appconfig.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
 	}
-	if cfg.APIKeys["openai"] != "sk-test" {
-		t.Fatalf("APIKeys[openai] = %q, want sk-test", cfg.APIKeys["openai"])
+	assertStringValue(t, "Provider", cfg.Provider, "openai")
+	assertStringValue(t, "APIKeys[openai]", cfg.APIKeys["openai"], "openai-key")
+	assertStringValue(t, "APIKeys[gemini]", cfg.APIKeys["gemini"], "gemini-key")
+}
+
+func TestConfigShowDisplaysAPIKeyStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		apiKey     string
+		wantStatus string
+	}{
+		{name: "configured", apiKey: "gemini-key", wantStatus: "set"},
+		{name: "missing", wantStatus: "unset"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			withConfigPath(t, path)
+			cfg := appconfig.Config{
+				Language: "pt-BR",
+				Model:    "gemini-3.5-flash-lite",
+				Provider: "gemini",
+			}
+			if test.apiKey != "" {
+				cfg.APIKeys = map[string]string{"gemini": test.apiKey}
+			}
+			if err := appconfig.SaveFile(path, cfg); err != nil {
+				t.Fatalf("SaveFile() error = %v", err)
+			}
+
+			var output bytes.Buffer
+			cmd := &cobra.Command{}
+			cmd.SetOut(&output)
+			if err := runConfigShow(cmd, nil); err != nil {
+				t.Fatalf("runConfigShow() error = %v", err)
+			}
+
+			want := "language=pt-BR\nmodel=gemini-3.5-flash-lite\nprovider=gemini\n" +
+				"api_key=" + test.wantStatus + "\nconfig=" + path + "\n"
+			if got := output.String(); got != want {
+				t.Fatalf("runConfigShow() output = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -144,39 +204,23 @@ func TestEffectiveOptionsFlagsOverrideSavedConfig(t *testing.T) {
 		t.Fatalf("SaveFile() error = %v", err)
 	}
 	cmd := newRootTestCommand()
-	if err := cmd.Flags().Set("context", "fix CI failure"); err != nil {
-		t.Fatalf("Set(context) error = %v", err)
-	}
-	if err := cmd.Flags().Set("language", "en"); err != nil {
-		t.Fatalf("Set(language) error = %v", err)
-	}
-	if err := cmd.Flags().Set("model", "gemma3"); err != nil {
-		t.Fatalf("Set(model) error = %v", err)
-	}
-	if err := cmd.Flags().Set("provider", "gemini"); err != nil {
-		t.Fatalf("Set(provider) error = %v", err)
-	}
+	setFlags(t, cmd, map[string]string{
+		"context":  "fix CI failure",
+		"language": "en",
+		"model":    "gemma3",
+		"provider": "gemini",
+	})
 
 	opts, err := effectiveOptions(cmd)
 	if err != nil {
 		t.Fatalf("effectiveOptions() error = %v", err)
 	}
 
-	if opts.Language != "en" {
-		t.Fatalf("Language = %q, want en", opts.Language)
-	}
-	if opts.Context != "fix CI failure" {
-		t.Fatalf("Context = %q, want fix CI failure", opts.Context)
-	}
-	if opts.Model != "gemma3" {
-		t.Fatalf("Model = %q, want gemma3", opts.Model)
-	}
-	if opts.Provider != "gemini" {
-		t.Fatalf("Provider = %q, want gemini", opts.Provider)
-	}
-	if opts.APIKey != "gemini-key" {
-		t.Fatalf("APIKey = %q, want gemini-key", opts.APIKey)
-	}
+	assertStringValue(t, "Language", opts.Language, "en")
+	assertStringValue(t, "Context", opts.Context, "fix CI failure")
+	assertStringValue(t, "Model", opts.Model, "gemma3")
+	assertStringValue(t, "Provider", opts.Provider, "gemini")
+	assertStringValue(t, "APIKey", opts.APIKey, "gemini-key")
 }
 
 func TestEffectiveOptionsRejectsHostedProviderWithoutConfiguredAPIKey(t *testing.T) {
@@ -213,6 +257,22 @@ func withConfigPath(t *testing.T, path string) {
 	t.Cleanup(func() {
 		configPath = original
 	})
+}
+
+func setFlags(t *testing.T, cmd *cobra.Command, values map[string]string) {
+	t.Helper()
+	for name, value := range values {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatalf("Set(%s) error = %v", name, err)
+		}
+	}
+}
+
+func assertStringValue(t *testing.T, name, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s = %q, want %q", name, got, want)
+	}
 }
 
 func newConfigSetTestCommand() *cobra.Command {

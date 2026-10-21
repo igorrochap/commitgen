@@ -1,6 +1,4 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
+// commitgen generates commit messages from repository changes.
 package main
 
 import "github.com/igorrochap/commitgen/cmd"
