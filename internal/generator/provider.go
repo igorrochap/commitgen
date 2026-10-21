@@ -130,7 +130,7 @@ func (p ollamaProvider) Generate(prompt string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ollama: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -181,7 +181,7 @@ func (p hostedProvider) Generate(prompt string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.name, err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -264,7 +264,7 @@ func (anthropicCodec) ParseResponse(body io.Reader) (string, error) {
 
 type geminiCodec struct{}
 
-func (geminiCodec) BuildRequest(model, prompt string) (any, error) {
+func (geminiCodec) BuildRequest(_ string, prompt string) (any, error) {
 	return map[string]any{
 		"contents": []map[string]any{
 			{
@@ -276,7 +276,7 @@ func (geminiCodec) BuildRequest(model, prompt string) (any, error) {
 	}, nil
 }
 
-func (geminiCodec) DecorateRequest(req *http.Request, apiKey string) {}
+func (geminiCodec) DecorateRequest(_ *http.Request, _ string) {}
 
 func (geminiCodec) ParseResponse(body io.Reader) (string, error) {
 	var result struct {

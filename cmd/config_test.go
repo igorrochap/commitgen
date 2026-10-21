@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -27,6 +28,71 @@ func TestConfigSetRejectsUnsupportedLanguage(t *testing.T) {
 
 	if err := runConfigSet(cmd, nil); err == nil {
 		t.Fatal("runConfigSet() error = nil, want error")
+	}
+}
+
+func TestConfigSetRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		flag  string
+		value string
+	}{
+		{name: "empty language", flag: "language", value: " "},
+		{name: "empty model", flag: "model", value: " "},
+		{name: "empty provider", flag: "provider", value: " "},
+		{name: "unsupported provider", flag: "provider", value: "custom"},
+		{name: "empty API key", flag: "api-key", value: " "},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			withConfigPath(t, filepath.Join(t.TempDir(), "config.json"))
+			cmd := newConfigSetTestCommand()
+			if err := cmd.Flags().Set(test.flag, test.value); err != nil {
+				t.Fatalf("Set(%s) error = %v", test.flag, err)
+			}
+			if err := runConfigSet(cmd, nil); err == nil {
+				t.Fatalf("runConfigSet() error = nil, want invalid %s error", test.flag)
+			}
+		})
+	}
+}
+
+func TestConfigSetPropagatesConfigPathError(t *testing.T) {
+	pathErr := errors.New("config path unavailable")
+	withConfigPathError(t, pathErr)
+	cmd := newConfigSetTestCommand()
+	if err := cmd.Flags().Set("language", "en"); err != nil {
+		t.Fatalf("Set(language) error = %v", err)
+	}
+
+	if err := runConfigSet(cmd, nil); !errors.Is(err, pathErr) {
+		t.Fatalf("runConfigSet() error = %v, want %v", err, pathErr)
+	}
+}
+
+func TestConfigSetPropagatesLoadError(t *testing.T) {
+	withConfigPath(t, t.TempDir())
+	cmd := newConfigSetTestCommand()
+	if err := cmd.Flags().Set("language", "en"); err != nil {
+		t.Fatalf("Set(language) error = %v", err)
+	}
+
+	if err := runConfigSet(cmd, nil); err == nil {
+		t.Fatal("runConfigSet() error = nil, want config read error")
+	}
+}
+
+func TestConfigSetPropagatesOutputError(t *testing.T) {
+	withConfigPath(t, filepath.Join(t.TempDir(), "config.json"))
+	cmd := newConfigSetTestCommand()
+	cmd.SetOut(commandErrorWriter{})
+	if err := cmd.Flags().Set("model", "gpt-5.5"); err != nil {
+		t.Fatalf("Set(model) error = %v", err)
+	}
+
+	if err := runConfigSet(cmd, nil); err == nil {
+		t.Fatal("runConfigSet() error = nil, want output error")
 	}
 }
 
@@ -236,6 +302,81 @@ func TestEffectiveOptionsRejectsHostedProviderWithoutConfiguredAPIKey(t *testing
 	}
 }
 
+func TestEffectiveOptionsRejectsUnsupportedSavedProvider(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	withConfigPath(t, path)
+	if err := appconfig.SaveFile(path, appconfig.Config{Language: "en", Model: "model", Provider: "custom"}); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
+	}
+
+	if _, err := effectiveOptions(newRootTestCommand()); err == nil {
+		t.Fatal("effectiveOptions() error = nil, want unsupported-provider error")
+	}
+}
+
+func TestEffectiveOptionsPropagatesConfigErrors(t *testing.T) {
+	t.Run("path error", func(t *testing.T) {
+		pathErr := errors.New("config path unavailable")
+		withConfigPathError(t, pathErr)
+		if _, err := effectiveOptions(newRootTestCommand()); !errors.Is(err, pathErr) {
+			t.Fatalf("effectiveOptions() error = %v, want %v", err, pathErr)
+		}
+	})
+
+	t.Run("load error", func(t *testing.T) {
+		withConfigPath(t, t.TempDir())
+		if _, err := effectiveOptions(newRootTestCommand()); err == nil {
+			t.Fatal("effectiveOptions() error = nil, want config read error")
+		}
+	})
+}
+
+func TestConfigShowPropagatesOutputError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	withConfigPath(t, path)
+	if err := appconfig.SaveFile(path, appconfig.Defaults()); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
+	}
+	cmd := &cobra.Command{}
+	cmd.SetOut(commandErrorWriter{})
+
+	if err := runConfigShow(cmd, nil); err == nil {
+		t.Fatal("runConfigShow() error = nil, want output error")
+	}
+}
+
+func TestConfigShowPropagatesStorageErrors(t *testing.T) {
+	t.Run("path error", func(t *testing.T) {
+		pathErr := errors.New("config path unavailable")
+		withConfigPathError(t, pathErr)
+		if err := runConfigShow(&cobra.Command{}, nil); !errors.Is(err, pathErr) {
+			t.Fatalf("runConfigShow() error = %v, want %v", err, pathErr)
+		}
+	})
+
+	t.Run("load error", func(t *testing.T) {
+		withConfigPath(t, t.TempDir())
+		if err := runConfigShow(&cobra.Command{}, nil); err == nil {
+			t.Fatal("runConfigShow() error = nil, want config read error")
+		}
+	})
+}
+
+func TestUpdateConfigAPIKeyInitializesMissingMap(t *testing.T) {
+	cmd := newConfigSetTestCommand()
+	if err := cmd.Flags().Set("api-key", "openai-key"); err != nil {
+		t.Fatalf("Set(api-key) error = %v", err)
+	}
+	cfg := appconfig.Config{Provider: "openai"}
+
+	if err := updateConfigAPIKey(cmd, &cfg); err != nil {
+		t.Fatalf("updateConfigAPIKey() error = %v", err)
+	}
+	if got := cfg.APIKeys["openai"]; got != "openai-key" {
+		t.Fatalf("APIKeys[openai] = %q, want openai-key", got)
+	}
+}
+
 func TestAPIKeyFlagOnlyExistsOnConfigSet(t *testing.T) {
 	if flag := rootCmd.Flags().Lookup("api-key"); flag != nil {
 		t.Fatal("root command exposes api-key flag, want config-only")
@@ -259,6 +400,17 @@ func withConfigPath(t *testing.T, path string) {
 	})
 }
 
+func withConfigPathError(t *testing.T, pathErr error) {
+	t.Helper()
+	original := configPath
+	configPath = func() (string, error) {
+		return "", pathErr
+	}
+	t.Cleanup(func() {
+		configPath = original
+	})
+}
+
 func setFlags(t *testing.T, cmd *cobra.Command, values map[string]string) {
 	t.Helper()
 	for name, value := range values {
@@ -273,6 +425,12 @@ func assertStringValue(t *testing.T, name, got, want string) {
 	if got != want {
 		t.Fatalf("%s = %q, want %q", name, got, want)
 	}
+}
+
+type commandErrorWriter struct{}
+
+func (commandErrorWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
 }
 
 func newConfigSetTestCommand() *cobra.Command {
