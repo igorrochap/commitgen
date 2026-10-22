@@ -1,3 +1,4 @@
+// Package config loads and saves commitgen configuration.
 package config
 
 import (
@@ -9,18 +10,27 @@ import (
 )
 
 const (
+	// DefaultLanguage is the language used when no language is configured.
 	DefaultLanguage = "en"
-	DefaultModel    = "gemma4:31b-cloud"
+	// DefaultModel is the model used when no model is configured.
+	DefaultModel = "gemma4:31b-cloud"
+	// DefaultProvider is the provider used when no provider is configured.
 	DefaultProvider = "ollama"
 )
 
+// Config contains the preferences and credentials used by commitgen.
 type Config struct {
-	Language string            `json:"language,omitempty"`
-	Model    string            `json:"model,omitempty"`
-	Provider string            `json:"provider,omitempty"`
-	APIKeys  map[string]string `json:"api_keys,omitempty"`
+	// Language is the language used to generate commit messages.
+	Language string `json:"language,omitempty"`
+	// Model is the model used by the selected provider.
+	Model string `json:"model,omitempty"`
+	// Provider is the service used to generate commit messages.
+	Provider string `json:"provider,omitempty"`
+	// APIKeys contains credentials keyed by provider name.
+	APIKeys map[string]string `json:"api_keys,omitempty"`
 }
 
+// IsSupportedProvider reports whether provider is supported by commitgen.
 func IsSupportedProvider(provider string) bool {
 	switch provider {
 	case "ollama", "openai", "anthropic", "gemini":
@@ -30,6 +40,7 @@ func IsSupportedProvider(provider string) bool {
 	}
 }
 
+// Path returns the path to the user's commitgen configuration file.
 func Path() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -38,6 +49,7 @@ func Path() (string, error) {
 	return filepath.Join(dir, "commitgen", "config.json"), nil
 }
 
+// Load reads the user's configuration, returning defaults when no file exists.
 func Load() (Config, error) {
 	path, err := Path()
 	if err != nil {
@@ -46,6 +58,7 @@ func Load() (Config, error) {
 	return LoadFile(path)
 }
 
+// LoadFile reads configuration from path, returning defaults when it does not exist.
 func LoadFile(path string) (Config, error) {
 	cfg := Defaults()
 	content, err := os.ReadFile(path)
@@ -76,6 +89,7 @@ func LoadFile(path string) (Config, error) {
 	return cfg, nil
 }
 
+// SaveFile writes cfg to path, creating its parent directory when needed.
 func SaveFile(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -93,6 +107,7 @@ func SaveFile(path string, cfg Config) error {
 	return nil
 }
 
+// Defaults returns the default configuration.
 func Defaults() Config {
 	return Config{
 		Language: DefaultLanguage,

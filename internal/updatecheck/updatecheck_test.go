@@ -91,6 +91,25 @@ func TestLatestVersionRejectsServerAndDecodeErrors(t *testing.T) {
 	}
 }
 
+func TestLatestVersionReturnsBodyCloseError(t *testing.T) {
+	wantErr := errors.New("close failed")
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body: failingCloseBody{
+				reader: strings.NewReader(`{"Version":"v1.2.3"}`),
+				err:    wantErr,
+			},
+		}, nil
+	})}
+
+	_, err := LatestVersion(context.Background(), client, "https://example.com")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("LatestVersion() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -159,6 +178,19 @@ func TestCheckWithTimeout(t *testing.T) {
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+type failingCloseBody struct {
+	reader io.Reader
+	err    error
+}
+
+func (body failingCloseBody) Read(p []byte) (int, error) {
+	return body.reader.Read(p)
+}
+
+func (body failingCloseBody) Close() error {
+	return body.err
+}
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)

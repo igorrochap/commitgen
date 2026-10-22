@@ -1,39 +1,43 @@
+// Package prompts provides localized commit message prompts.
 package prompts
 
 import _ "embed"
 
 //go:embed en.md
-var English string
+var english string
 
 //go:embed pt_br.md
-var PtBr string
+var ptBr string
 
 //go:embed pr_en.md
-var PREnglish string
+var prEnglish string
 
 //go:embed pr_pt_br.md
-var PRPtBr string
+var prPtBr string
 
 var registry = map[string]string{
-	"en":    English,
-	"pt-BR": PtBr,
+	"en":    english,
+	"pt-BR": ptBr,
 }
 
 var prRegistry = map[string]string{
-	"en":    PREnglish,
-	"pt-BR": PRPtBr,
+	"en":    prEnglish,
+	"pt-BR": prPtBr,
 }
 
+// Get returns the commit message prompt for lang when it is supported.
 func Get(lang string) (string, bool) {
 	p, ok := registry[lang]
 	return p, ok
 }
 
+// GetPR returns the pull request prompt for lang when it is supported.
 func GetPR(lang string) (string, bool) {
 	p, ok := prRegistry[lang]
 	return p, ok
 }
 
+// IsSupported reports whether lang has a commit message prompt.
 func IsSupported(lang string) bool {
 	_, ok := registry[lang]
 	return ok

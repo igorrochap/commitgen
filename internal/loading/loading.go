@@ -1,7 +1,9 @@
+// Package loading displays progress while commitgen generates a commit message.
 package loading
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,8 +42,7 @@ func (m model) View() string {
 	return fmt.Sprintf("Generating %s", m.spinner.View())
 }
 
-// Start begins the loading spinner and returns a wait function that blocks
-// until the spinner has fully exited and the terminal is clean.
+// Start begins the loading spinner and returns a function that waits for it to exit.
 func Start(done <-chan struct{}) func() {
 	finished := make(chan struct{})
 
@@ -55,7 +56,9 @@ func Start(done <-chan struct{}) func() {
 			model{spinner: s, done: done},
 			tea.WithInput(nil),
 		)
-		p.Run() //nolint:errcheck
+		if _, err := p.Run(); err != nil {
+			log.Printf("loading spinner: %v", err)
+		}
 	}()
 
 	return func() {
