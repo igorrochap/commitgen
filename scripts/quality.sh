@@ -3,7 +3,7 @@
 # Keep running after a failed gate so the summary can report every gate.
 set -u
 
-readonly COVERAGE_FLOOR=54
+readonly COVERAGE_FLOOR=70
 readonly STYLE_LINTERS=errcheck,staticcheck,revive,gocritic,errorlint,unused,ineffassign
 readonly COMPLEXITY_LINTERS=gocyclo,gocognit
 
@@ -380,7 +380,7 @@ coverage() {
     return 1
   fi
 
-  if ! go test -coverpkg=./... -coverprofile="$coverage_profile" ./... >/dev/null 2>&1; then
+  if ! go test -count=1 -coverpkg=./... -coverprofile="$coverage_profile" ./... >/dev/null 2>&1; then
     printf '%s\n' 'test suite failed'
     return 1
   fi

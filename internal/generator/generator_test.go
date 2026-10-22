@@ -102,6 +102,92 @@ func TestRunAndRunPushRejectUnsupportedLanguage(t *testing.T) {
 	}
 }
 
+func TestRunAndRunPushUseInjectedSelectionWithoutTTY(t *testing.T) {
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		return func() { <-done }
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: add change"}`), nil
+	}))
+
+	originalSelectionRunner := selectionRunner
+	t.Cleanup(func() { selectionRunner = originalSelectionRunner })
+
+	for _, testCase := range []struct {
+		name string
+		run  func(Options) error
+		push bool
+	}{
+		{name: "run", run: Run},
+		{name: "push", run: RunPush, push: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertInjectedRunCreatesCommit(t, testCase.name, testCase.run, testCase.push)
+		})
+	}
+}
+
+func assertInjectedRunCreatesCommit(t *testing.T, name string, run func(Options) error, push bool) {
+	t.Helper()
+	repoDir := makeStagedChangeRepository(t, push)
+	t.Chdir(repoDir)
+
+	var selectedMessage string
+	selectionRunner = func(message string) (selection.Result, error) {
+		selectedMessage = message
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	err := run(Options{Language: "en", Model: "gpt-5.5", Provider: "openai", APIKey: "sk-test"})
+	if err != nil {
+		t.Fatalf("%s() error = %v", name, err)
+	}
+	if selectedMessage != "feat: add change" {
+		t.Fatalf("selected message = %q, want generated message", selectedMessage)
+	}
+
+	localCommit := runGit(t, repoDir, "rev-parse", "HEAD")
+	if message := runGit(t, repoDir, "log", "-1", "--format=%s"); message != selectedMessage {
+		t.Fatalf("commit message = %q, want %q", message, selectedMessage)
+	}
+	if push {
+		assertRemoteCommit(t, filepath.Join(repoDir, "remote.git"), localCommit)
+	}
+}
+
+func assertRemoteCommit(t *testing.T, remoteDir, localCommit string) {
+	t.Helper()
+	remoteCommit := runGit(t, remoteDir, "rev-parse", "refs/heads/feature")
+	if remoteCommit != localCommit {
+		t.Fatalf("remote commit = %q, want local commit %q", remoteCommit, localCommit)
+	}
+}
+
+func makeStagedChangeRepository(t *testing.T, withRemote bool) string {
+	t.Helper()
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	if withRemote {
+		remoteDir := filepath.Join(repoDir, "remote.git")
+		if err := os.Mkdir(remoteDir, 0o755); err != nil {
+			t.Fatalf("Mkdir() error = %v", err)
+		}
+		runGit(t, remoteDir, "init", "--bare")
+		runGit(t, repoDir, "remote", "add", "origin", remoteDir)
+	}
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "initial")
+	if withRemote {
+		runGit(t, repoDir, "push", "-u", "origin", "feature")
+	}
+	filePath := filepath.Join(repoDir, "change.txt")
+	if err := os.WriteFile(filePath, []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+	return repoDir
+}
+
 func TestRunPRRejectsUnsupportedLanguage(t *testing.T) {
 	if err := RunPR(PROptions{Language: "fr"}); err == nil {
 		t.Fatal("RunPR() error = nil, want unsupported-language error")
@@ -119,6 +205,49 @@ func TestRunPRRejectsEmptyCommitRange(t *testing.T) {
 	err := RunPR(PROptions{Language: "en", Base: "main", Head: "main"})
 	if err == nil || !strings.Contains(err.Error(), "no commits found") {
 		t.Fatalf("RunPR() error = %v, want empty-range error", err)
+	}
+}
+
+func TestRunPRReturnsGitLogError(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feature commit")
+	t.Chdir(repoDir)
+
+	err := RunPR(PROptions{Language: "en", Base: "missing", Head: "feature"})
+	if err == nil || !strings.Contains(err.Error(), "git log missing..feature") {
+		t.Fatalf("RunPR() error = %v, want invalid base error", err)
+	}
+}
+
+func TestRunPRReturnsProviderError(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feature")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feat: add branch summary")
+	t.Chdir(repoDir)
+	withProviderLoading(t, func(<-chan struct{}) func() {
+		return func() {}
+	})
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusServiceUnavailable, "provider unavailable"), nil
+	}))
+
+	err := RunPR(PROptions{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feature",
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider unavailable") {
+		t.Fatalf("RunPR() error = %v, want provider error", err)
 	}
 }
 
@@ -144,21 +273,62 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{"output_text":"feat: summarize branch"}`), nil
 	}))
 	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
-
-	err := RunPR(PROptions{
-		Language: "en",
-		Model:    "gpt-5.5",
-		Provider: "openai",
-		APIKey:   "sk-test",
-		Base:     "main",
-		Head:     "feature",
+	withProviderLoading(t, func(<-chan struct{}) func() {
+		return func() {}
 	})
-	if err != nil {
-		t.Fatalf("RunPR() error = %v", err)
+
+	output := captureStdout(t, func() {
+		err := RunPR(PROptions{
+			Language: "en",
+			Model:    "gpt-5.5",
+			Provider: "openai",
+			APIKey:   "sk-test",
+			Base:     "main",
+			Head:     "feature",
+			Context:  "closes issue 18",
+		})
+		if err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if output != "feat: summarize branch\n" {
+		t.Fatalf("RunPR() output = %q, want %q", output, "feat: summarize branch\n")
 	}
 	if !strings.Contains(gotPrompt, "feat: add branch summary") {
 		t.Fatalf("prompt = %q, want branch commit subject", gotPrompt)
 	}
+	if !strings.Contains(gotPrompt, "closes issue 18") {
+		t.Fatalf("prompt = %q, want supplied context", gotPrompt)
+	}
+}
+
+func captureStdout(t *testing.T, run func()) string {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe() error = %v", err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+
+	run()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	os.Stdout = original
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	return string(output)
 }
 
 func TestGenerateTextRejectsUnknownProvider(t *testing.T) {

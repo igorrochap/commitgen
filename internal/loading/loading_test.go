@@ -3,6 +3,7 @@ package loading
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,9 +61,25 @@ func TestModelView(t *testing.T) {
 	}
 }
 
-func TestStartWaitsForDone(_ *testing.T) {
+func TestStartWaitsForDone(t *testing.T) {
 	done := make(chan struct{})
 	wait := Start(done)
+	finished := make(chan struct{})
+	go func() {
+		wait()
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+		t.Fatal("Start() wait returned before done was closed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
 	close(done)
-	wait()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() wait did not return after done was closed")
+	}
 }

@@ -32,6 +32,10 @@ type model struct {
 	result  *Result
 }
 
+var runProgram = func(m tea.Model) (tea.Model, error) {
+	return tea.NewProgram(m).Run()
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -79,8 +83,7 @@ func Run(commit string) (Result, error) {
 		commit:  commit,
 		choices: []string{"Accept", "Edit", "Regenerate"},
 	}
-	p := tea.NewProgram(m)
-	final, err := p.Run()
+	final, err := runProgram(m)
 	if err != nil {
 		return Result{}, err
 	}

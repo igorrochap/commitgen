@@ -5,6 +5,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var runPushGeneration = generator.RunPush
+
 var pushCmd = &cobra.Command{
 	Use:          "push",
 	Short:        "Generate a commit and push it to the remote",
@@ -14,7 +16,7 @@ var pushCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return generator.RunPush(opts)
+		return runPushGeneration(opts)
 	},
 }
 

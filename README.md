@@ -23,7 +23,7 @@ Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run
 - `style` runs `errcheck`, `staticcheck`, `revive`, `gocritic`, `errorlint`, `unused`, and `ineffassign` on changed Go files.
 - `complexity` runs `gocyclo` (limit 10) and `gocognit` (limit 15) on changed Go files, including tests. A function at a limit passes; only a function above it fails.
 - Both diff gates use the merge base with the selected base ref and report that ref plus the changed Go file count. Set `QUALITY_BASE_REF` to select a ref explicitly. Otherwise, `GITHUB_BASE_REF` tries `origin/<name>` and then `<name>`; local runs default to `origin/main` and then `main`. An explicitly supplied ref that does not exist is an error, with no fallback.
-- `coverage` runs `go test -coverpkg=./... -coverprofile=.cache/coverage.out ./...` to measure statement coverage across the whole module, including packages without test files, and enforces a 54% floor.
+- `coverage` runs `go test -count=1 -coverpkg=./... -coverprofile=.cache/coverage.out ./...` to measure fresh statement coverage across the whole module, including packages without test files, and enforces a 70% floor.
 - `tests` runs `go test ./...` and requires Go 1.25.2+.
 - `architecture` runs the Go AST checker in `scripts/architecture` and checks imports across all Go source and test files:
   - R1: Packages under `internal/` cannot import `cmd`; internal packages stay independent from CLI wiring.
