@@ -1,3 +1,4 @@
+// Package selection presents the generated commit message for user review.
 package selection
 
 import (
@@ -6,17 +7,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Choice is the action selected from the review menu.
 type Choice int
 
 const (
+	// Accept keeps the generated commit message.
 	Accept Choice = iota
+	// Edit opens the generated message for editing.
 	Edit
+	// Regenerate requests another commit message.
 	Regenerate
 )
 
+// Result contains the action selected from the review menu.
 type Result struct {
-	Choice       Choice
-	EditedCommit string
+	// Choice is the action selected by the user.
+	Choice Choice
 }
 
 type model struct {
@@ -31,23 +37,25 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.choices) {
-				m.cursor++
-			}
-		case "enter":
-			m.result = &Result{Choice: Choice(m.cursor)}
-			return m, tea.Quit
-		case "q", "ctrl+c":
-			return m, tea.Quit
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+
+	switch key.String() {
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
 		}
+	case "down", "j":
+		if m.cursor < len(m.choices) {
+			m.cursor++
+		}
+	case "enter":
+		m.result = &Result{Choice: Choice(m.cursor)}
+		return m, tea.Quit
+	case "q", "ctrl+c":
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -65,6 +73,7 @@ func (m model) View() string {
 	return s
 }
 
+// Run displays commit and returns the user's menu choice.
 func Run(commit string) (Result, error) {
 	m := model{
 		commit:  commit,
