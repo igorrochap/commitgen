@@ -106,6 +106,34 @@ func TestDefaultBaseReturnsErrorWithoutCandidate(t *testing.T) {
 	}
 }
 
+func TestDefaultBaseFindsFallbackBranches(t *testing.T) {
+	for _, branch := range []string{"master", "develop"} {
+		t.Run(branch, func(t *testing.T) {
+			repoDir := t.TempDir()
+			runGit(t, repoDir, "init", "-b", branch)
+			runGit(t, repoDir, "config", "user.email", "test@example.com")
+			runGit(t, repoDir, "config", "user.name", "Test User")
+			runGit(t, repoDir, "commit", "--allow-empty", "-m", "initial")
+			t.Chdir(repoDir)
+
+			got, err := DefaultBase()
+			if err != nil {
+				t.Fatalf("DefaultBase() error = %v", err)
+			}
+			if got != branch {
+				t.Fatalf("DefaultBase() = %q, want %q", got, branch)
+			}
+		})
+	}
+}
+
+func TestCurrentBranchReturnsErrorOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if _, err := CurrentBranch(); err == nil {
+		t.Fatal("CurrentBranch() error = nil, want git error")
+	}
+}
+
 func TestPushSetsUpstreamForCurrentBranch(t *testing.T) {
 	remoteDir := filepath.Join(t.TempDir(), "remote.git")
 	repoDir := t.TempDir()

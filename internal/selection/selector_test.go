@@ -1,10 +1,59 @@
 package selection
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestRunReturnsSelectedChoiceWithoutTTY(t *testing.T) {
+	withProgramRunner(t, func(initial tea.Model) (tea.Model, error) {
+		if !strings.Contains(initial.View(), "feat: test selection") {
+			t.Fatalf("initial view = %q, want generated message", initial.View())
+		}
+		updated, _ := initial.Update(keyMessage("enter"))
+		return updated, nil
+	})
+
+	result, err := Run("feat: test selection")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Choice != Accept {
+		t.Fatalf("Run() choice = %d, want %d", result.Choice, Accept)
+	}
+}
+
+func TestRunReturnsProgramError(t *testing.T) {
+	wantErr := errors.New("program failed")
+	withProgramRunner(t, func(tea.Model) (tea.Model, error) {
+		return nil, wantErr
+	})
+
+	if _, err := Run("feat: test selection"); !errors.Is(err, wantErr) {
+		t.Fatalf("Run() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestRunRejectsExitWithoutSelection(t *testing.T) {
+	withProgramRunner(t, func(initial tea.Model) (tea.Model, error) {
+		updated, _ := initial.Update(keyMessage("q"))
+		return updated, nil
+	})
+
+	if _, err := Run("feat: test selection"); err == nil || err.Error() != "no selection made" {
+		t.Fatalf("Run() error = %v, want no selection error", err)
+	}
+}
+
+func withProgramRunner(t *testing.T, runner func(tea.Model) (tea.Model, error)) {
+	t.Helper()
+	original := runProgram
+	runProgram = runner
+	t.Cleanup(func() { runProgram = original })
+}
 
 func TestModelInitAndView(t *testing.T) {
 	m := model{

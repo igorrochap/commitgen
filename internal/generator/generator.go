@@ -21,6 +21,8 @@ import (
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\r`)
 
+var selectionRunner = selection.Run
+
 var (
 	lineEndWord   = regexp.MustCompile(`([\p{L}\p{N}_]+)[ \t]*$`)
 	lineStartWord = regexp.MustCompile(`^([\p{L}\p{N}_]+)`)
@@ -97,7 +99,7 @@ type promptData struct {
 
 // Run generates a commit message and creates a commit after selection.
 func Run(option Options) error {
-	return run(option, selection.Run, makeCommit)
+	return run(option, selectionRunner, makeCommit)
 }
 
 func run(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -123,7 +125,7 @@ func run(option Options, runSelection func(string) (selection.Result, error), cr
 
 // RunPush generates a commit, creates it, and pushes the current branch.
 func RunPush(option Options) error {
-	return runPush(option, selection.Run, makeCommit)
+	return runPush(option, selectionRunner, makeCommit)
 }
 
 func runPush(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
