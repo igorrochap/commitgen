@@ -102,7 +102,7 @@ format() {
   local exit_code
   local file
 
-  if ! require_command golangci-lint 'go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1'; then
+  if ! require_command golangci-lint 'curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.13.1'; then
     return 1
   fi
 
@@ -307,7 +307,7 @@ diff_gate() {
     fi
   done
 
-  if ! require_command golangci-lint 'go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1'; then
+  if ! require_command golangci-lint 'curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.13.1'; then
     printf 'FAIL  base %s, %d changed Go files\n' "$QUALITY_BASE_NAME" "$changed_file_count"
     rm -rf "$temporary_directory"
     return 1
