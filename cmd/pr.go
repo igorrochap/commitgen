@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	appconfig "github.com/igorrochap/commitgen/internal/config"
 	"github.com/igorrochap/commitgen/internal/generator"
 	"github.com/spf13/cobra"
 )
@@ -16,7 +15,7 @@ var prCmd = &cobra.Command{
 	Short:        "Generate a Pull Request title and description",
 	Long:         `Generate a Pull Request title and description based on the commits between two branches using an LLM.`,
 	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		opts, err := effectiveOptions(cmd)
 		if err != nil {
 			return err
@@ -54,10 +53,7 @@ var prCmd = &cobra.Command{
 
 func init() {
 	prCmd.Flags().StringVar(&prBase, "base", "", "Base branch (default: main/master/develop)")
-	prCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
 	prCmd.Flags().StringVar(&prHead, "head", "", "Head branch (default: current branch)")
-	prCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Output language")
-	prCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "LLM model")
-	prCmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
+	registerGenerationFlags(prCmd, "Output language", "LLM model")
 	rootCmd.AddCommand(prCmd)
 }

@@ -8,6 +8,132 @@ import (
 	"testing"
 )
 
+func TestGetDiffNoStagedChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	t.Chdir(repoDir)
+
+	_, err := GetDiff()
+	if err == nil {
+		t.Fatal("GetDiff() error = nil, want no staged changes error")
+	}
+	want := "no staged changes; add the files you want to commit and run commitgen again"
+	if err.Error() != want {
+		t.Fatalf("GetDiff() error = %q, want %q", err, want)
+	}
+}
+
+func TestGetDiffReturnsStagedChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repoDir, "change.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+	t.Chdir(repoDir)
+
+	diff, err := GetDiff()
+	if err != nil {
+		t.Fatalf("GetDiff() error = %v", err)
+	}
+	if !strings.Contains(diff, "+change") {
+		t.Fatalf("GetDiff() = %q, want staged content", diff)
+	}
+}
+
+func TestHaveStagingChangesReturnsGitErrorOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if _, err := haveStagingChanges(); err == nil {
+		t.Fatal("haveStagingChanges() error = nil, want git error")
+	}
+}
+
+func TestMakeCommitCreatesCommit(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoDir, "change.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+	t.Chdir(repoDir)
+
+	if err := makeCommit("feat: add change"); err != nil {
+		t.Fatalf("makeCommit() error = %v", err)
+	}
+	if got := runGit(t, repoDir, "log", "-1", "--format=%s"); got != "feat: add change" {
+		t.Fatalf("commit subject = %q, want %q", got, "feat: add change")
+	}
+}
+
+func TestBranchHelpers(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base subject\n\nbase body")
+	runGit(t, repoDir, "checkout", "-b", "feature")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feature subject\n\nfeature body")
+	t.Chdir(repoDir)
+
+	if got, err := CurrentBranch(); err != nil || got != "feature" {
+		t.Fatalf("CurrentBranch() = %q, %v; want feature, nil", got, err)
+	}
+	if got, err := DefaultBase(); err != nil || got != "main" {
+		t.Fatalf("DefaultBase() = %q, %v; want main, nil", got, err)
+	}
+	log, err := getBranchLog("main", "feature")
+	if err != nil {
+		t.Fatalf("getBranchLog() error = %v", err)
+	}
+	if !strings.Contains(log, "feature subject") || strings.Contains(log, "base subject") {
+		t.Fatalf("getBranchLog() = %q, want only feature commit", log)
+	}
+	if _, err := getBranchLog("missing", "feature"); err == nil {
+		t.Fatal("getBranchLog() error = nil, want invalid-ref error")
+	}
+}
+
+func TestDefaultBaseReturnsErrorWithoutCandidate(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "feature")
+	t.Chdir(repoDir)
+
+	if _, err := DefaultBase(); err == nil {
+		t.Fatal("DefaultBase() error = nil, want missing-base error")
+	}
+}
+
+func TestDefaultBaseFindsFallbackBranches(t *testing.T) {
+	for _, branch := range []string{"master", "develop"} {
+		t.Run(branch, func(t *testing.T) {
+			repoDir := t.TempDir()
+			runGit(t, repoDir, "init", "-b", branch)
+			runGit(t, repoDir, "config", "user.email", "test@example.com")
+			runGit(t, repoDir, "config", "user.name", "Test User")
+			runGit(t, repoDir, "commit", "--allow-empty", "-m", "initial")
+			t.Chdir(repoDir)
+
+			got, err := DefaultBase()
+			if err != nil {
+				t.Fatalf("DefaultBase() error = %v", err)
+			}
+			if got != branch {
+				t.Fatalf("DefaultBase() = %q, want %q", got, branch)
+			}
+		})
+	}
+}
+
+func TestCurrentBranchReturnsErrorOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if _, err := CurrentBranch(); err == nil {
+		t.Fatal("CurrentBranch() error = nil, want git error")
+	}
+}
+
 func TestPushSetsUpstreamForCurrentBranch(t *testing.T) {
 	remoteDir := filepath.Join(t.TempDir(), "remote.git")
 	repoDir := t.TempDir()

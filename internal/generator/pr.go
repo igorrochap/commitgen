@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/igorrochap/commitgen/internal/prompts"
 )
 
+// PROptions configures pull request description generation.
 type PROptions struct {
 	Context  string
 	Language string
@@ -19,6 +21,7 @@ type PROptions struct {
 	Head     string
 }
 
+// RunPR generates and prints a pull request description.
 func RunPR(opts PROptions) error {
 	prompt, ok := prompts.GetPR(opts.Language)
 	if !ok {
@@ -61,6 +64,7 @@ func getBranchLog(base, head string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// DefaultBase returns the first available base branch among main, master, and develop.
 func DefaultBase() (string, error) {
 	for _, candidate := range []string{"main", "master", "develop"} {
 		cmd := exec.Command("git", "rev-parse", "--verify", candidate)
@@ -68,9 +72,10 @@ func DefaultBase() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("could not detect base branch; use --base to specify one")
+	return "", errors.New("could not detect base branch; use --base to specify one")
 }
 
+// CurrentBranch returns the name of the current git branch.
 func CurrentBranch() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	out, err := cmd.Output()

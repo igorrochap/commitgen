@@ -1,0 +1,60 @@
+name: Quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate_list:
+    runs-on: ubuntu-latest
+    outputs:
+      gates: ${{ steps.list.outputs.gates }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: list
+        name: Read quality gates
+        run: |
+          gates="$(scripts/quality.sh --list)"
+          if [[ -z "$gates" ]]; then
+            echo "scripts/quality.sh --list returned no gates" >&2
+            exit 1
+          fi
+          matrix="$(printf '%s\n' "$gates" | python3 -c 'import json, sys; print(json.dumps(sys.stdin.read().splitlines()))')"
+          printf 'gates=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: quality (${{ matrix.gate }})
+    needs: gate_list
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: ${{ fromJSON(needs.gate_list.outputs.gates) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install golangci-lint v2.13.1
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.1
+          install-mode: binary
+          install-only: true
+          verify: false
+
+      - name: Run ${{ matrix.gate }} gate
+        env:
+          QUALITY_BASE_REF: ${{ github.event_name == 'push' && github.event.before || '' }}
+        run: scripts/quality.sh "${{ matrix.gate }}"

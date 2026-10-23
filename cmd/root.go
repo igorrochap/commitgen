@@ -1,6 +1,4 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
+// Package cmd provides the commitgen command-line interface.
 package cmd
 
 import (
@@ -32,16 +30,15 @@ var rootCmd = &cobra.Command{
 	Short:        "Generate commits based on changes made in the project",
 	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. It uses an LLM to generate the commit for you to review`,
 	SilenceUsage: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 		if version {
 			return
 		}
 		notifyUpdate(cmd)
 	},
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		if version {
-			printVersion(cmd)
-			return nil
+			return printVersion(cmd)
 		}
 
 		opts, err := effectiveOptions(cmd)
@@ -63,10 +60,14 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
-	rootCmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
-	rootCmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, "Commit language")
-	rootCmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, "LLM model")
-	rootCmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
+	registerGenerationFlags(rootCmd, "Commit language", "LLM model")
+}
+
+func registerGenerationFlags(cmd *cobra.Command, languageHelp, modelHelp string) {
+	cmd.Flags().StringVar(&context, "context", "", "Additional context for generation")
+	cmd.Flags().StringVar(&language, "language", appconfig.DefaultLanguage, languageHelp)
+	cmd.Flags().StringVar(&model, "model", appconfig.DefaultModel, modelHelp)
+	cmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
 }
 
 func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
@@ -113,5 +114,6 @@ func notifyUpdate(cmd *cobra.Command) {
 		return
 	}
 
-	fmt.Fprintf(cmd.ErrOrStderr(), "A new commitgen version is available: %s -> %s\nRun `commitgen update` to upgrade.\n\n", result.Current, result.Latest)
+	// The update notice is advisory, so a failed write must not block the command.
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "A new commitgen version is available: %s -> %s\nRun `commitgen update` to upgrade.\n\n", result.Current, result.Latest)
 }

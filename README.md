@@ -14,6 +14,25 @@ A CLI tool that uses an LLM provider to generate [Conventional Commits](https://
 - [Git](https://git-scm.com)
 - [Ollama](https://ollama.com) running locally with at least one model pulled, or an API key for a hosted provider
 
+## Quality gates
+
+Run `scripts/quality.sh` to run all gates, or `scripts/quality.sh <gate>` to run one.
+
+- `format`, `style`, and `complexity` require golangci-lint v2.13.1. The `format` gate uses its `gofmt` and `goimports` formatters. CI installs this exact version as a prebuilt binary with the official golangci-lint GitHub Action.
+- `vet` runs `go vet ./...` and requires Go 1.25.2+.
+- `style` runs `errcheck`, `staticcheck`, `revive`, `gocritic`, `errorlint`, `unused`, and `ineffassign` on changed Go files.
+- `complexity` runs `gocyclo` (limit 10) and `gocognit` (limit 15) on changed Go files, including tests. A function at a limit passes; only a function above it fails.
+- Both diff gates use the merge base with the selected base ref and report that ref plus the changed Go file count. Set `QUALITY_BASE_REF` to select a ref explicitly. Otherwise, `GITHUB_BASE_REF` tries `origin/<name>` and then `<name>`; local runs default to `origin/main` and then `main`. An explicitly supplied ref that does not exist is an error, with no fallback.
+- `coverage` runs `go test -count=1 -coverpkg=./... -coverprofile=.cache/coverage.out ./...` to measure fresh statement coverage across the whole module, including packages without test files, and enforces a 70% floor.
+- `tests` runs `go test ./...` and requires Go 1.25.2+.
+- `architecture` runs the Go AST checker in `scripts/architecture` and checks imports across all Go source and test files:
+  - R1: Packages under `internal/` cannot import `cmd`; internal packages stay independent from CLI wiring.
+  - R2: `internal/config`, `internal/prompts`, `internal/loading`, `internal/selection`, and `internal/updatecheck` cannot import other module packages; these foundational packages stay reusable.
+  - R3: `internal/generator` can import only `internal/loading`, `internal/prompts`, and `internal/selection`; generation stays within its declared collaborators.
+  - R4: Only `cmd` can import `github.com/spf13/cobra`; Cobra-specific wiring stays at the CLI boundary.
+  - R5: Only `internal/loading` and `internal/selection` can import `github.com/charmbracelet/*`; terminal UI dependencies stay behind packages that can isolate TTY behavior.
+  - R6: The root `main` package can import only `cmd` from this module; the executable entry point stays a small delegate.
+
 ## Installation
 
 ```bash

@@ -8,13 +8,14 @@ import (
 	"strings"
 )
 
+// GetDiff returns the diff for files currently staged in git.
 func GetDiff() (string, error) {
 	staging, err := haveStagingChanges()
 	if err != nil {
 		return "", err
 	}
 	if !staging {
-		return "", fmt.Errorf("There is not staged changes. Please add the files you want to commit and run commitgen again.")
+		return "", errors.New("no staged changes; add the files you want to commit and run commitgen again")
 	}
 
 	var diff string
@@ -43,6 +44,7 @@ func haveStagingChanges() (bool, error) {
 	return false, nil
 }
 
+// Push pushes the current branch to its configured upstream or first remote.
 func Push() error {
 	branch, err := CurrentBranch()
 	if err != nil {

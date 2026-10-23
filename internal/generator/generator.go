@@ -1,9 +1,13 @@
+// Package generator builds commit messages and coordinates commit, push, and pull request workflows.
 package generator
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +20,8 @@ import (
 )
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\r`)
+
+var selectionRunner = selection.Run
 
 var (
 	lineEndWord   = regexp.MustCompile(`([\p{L}\p{N}_]+)[ \t]*$`)
@@ -33,26 +39,51 @@ func unwrapLines(s string) string {
 		if len(lines) <= 1 {
 			continue
 		}
-		result := lines[0]
-		for _, line := range lines[1:] {
-			trimmed := strings.TrimLeft(line, " \t")
-			if len(trimmed) > 0 && (trimmed[0] == '-' || trimmed[0] == '*' || trimmed[0] == '+') {
-				result += "\n" + line
-				continue
-			}
-			endMatch := lineEndWord.FindStringSubmatch(result)
-			startMatch := lineStartWord.FindStringSubmatch(trimmed)
-			if len(endMatch) > 1 && len(startMatch) > 1 && strings.HasPrefix(startMatch[1], endMatch[1]) {
-				result = result[:len(result)-len(endMatch[1])] + trimmed
-			} else {
-				result += " " + trimmed
-			}
-		}
-		paragraphs[i] = result
+		paragraphs[i] = unwrapParagraph(lines)
 	}
 	return strings.Join(paragraphs, "\n\n")
 }
 
+func unwrapParagraph(lines []string) string {
+	result := lines[0]
+	for _, line := range lines[1:] {
+		result = joinWrappedLine(result, line)
+	}
+	return result
+}
+
+func joinWrappedLine(result, line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	if isListItemLine(trimmed) {
+		return result + "\n" + line
+	}
+	if truncatedWord, continues := continuesTruncatedWord(result, trimmed); continues {
+		return result[:len(result)-len(truncatedWord)] + trimmed
+	}
+	return result + " " + trimmed
+}
+
+func isListItemLine(line string) bool {
+	return len(line) > 0 && strings.ContainsRune("-*+", rune(line[0]))
+}
+
+func continuesTruncatedWord(result, line string) (string, bool) {
+	endMatch := lineEndWord.FindStringSubmatch(result)
+	startMatch := lineStartWord.FindStringSubmatch(line)
+	if len(endMatch) <= 1 || len(startMatch) <= 1 {
+		return "", false
+	}
+
+	truncatedWord := endMatch[1]
+	return truncatedWord, strings.HasPrefix(startMatch[1], truncatedWord)
+}
+
+func closeBody(body io.ReadCloser) {
+	// The caller has already determined its result from the body; closing cannot change it.
+	_ = body.Close()
+}
+
+// Options configures commit message generation.
 type Options struct {
 	Context  string
 	Language string
@@ -66,8 +97,9 @@ type promptData struct {
 	Diff    string
 }
 
+// Run generates a commit message and creates a commit after selection.
 func Run(option Options) error {
-	return run(option, selection.Run, makeCommit)
+	return run(option, selectionRunner, makeCommit)
 }
 
 func run(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -91,8 +123,9 @@ func run(option Options, runSelection func(string) (selection.Result, error), cr
 	return err
 }
 
+// RunPush generates a commit, creates it, and pushes the current branch.
 func RunPush(option Options) error {
-	return runPush(option, selection.Run, makeCommit)
+	return runPush(option, selectionRunner, makeCommit)
 }
 
 func runPush(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -104,7 +137,7 @@ func runPush(option Options, runSelection func(string) (selection.Result, error)
 
 func getPrompt(language string) (string, error) {
 	prompt, ok := prompts.Get(language)
-	if ok == false {
+	if !ok {
 		return "", fmt.Errorf("language %s not supported", language)
 	}
 	return prompt, nil
@@ -118,8 +151,7 @@ func selectOption(
 	runSelection func(string) (selection.Result, error),
 	createCommit func(string) error,
 ) error {
-	end := false
-	for end == false {
+	for {
 		commit, err := generateCommit(tmpl, diff, provider, context)
 		if err != nil {
 			return err
@@ -130,22 +162,15 @@ func selectOption(
 		}
 		switch result.Choice {
 		case selection.Accept:
-			if err := createCommit(commit); err != nil {
-				return err
-			}
-			end = true
+			return createCommit(commit)
 		case selection.Edit:
 			updatedCommit, err := edit(commit)
 			if err != nil {
 				return err
 			}
-			if err := createCommit(updatedCommit); err != nil {
-				return err
-			}
-			end = true
+			return createCommit(updatedCommit)
 		}
 	}
-	return nil
 }
 
 // modelContextLength queries ollama for the model's context window size.
@@ -156,7 +181,7 @@ func modelContextLength(model string) int {
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 	var info struct {
 		ModelInfo map[string]any `json:"model_info"`
 	}
@@ -220,8 +245,8 @@ func makeCommit(commit string) error {
 	if err != nil {
 		return err
 	}
-	getIdCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
-	id, err := getIdCmd.Output()
+	getIDCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
+	id, err := getIDCmd.Output()
 	if err != nil {
 		return err
 	}
@@ -234,11 +259,14 @@ func edit(commit string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(commit); err != nil {
-		return "", err
+	defer func() {
+		if err := os.Remove(tmp.Name()); err != nil {
+			log.Printf("remove temporary commit file: %v", err)
+		}
+	}()
+	if err := writeAndCloseTemporaryCommit(tmp, commit); err != nil {
+		return "", fmt.Errorf("prepare temporary commit: %w", err)
 	}
-	tmp.Close()
 
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -262,4 +290,10 @@ func edit(commit string) (string, error) {
 		return "", nil
 	}
 	return strings.TrimSpace(string(content)), nil
+}
+
+func writeAndCloseTemporaryCommit(tmp io.WriteCloser, commit string) error {
+	_, writeErr := io.WriteString(tmp, commit)
+	closeErr := tmp.Close()
+	return errors.Join(writeErr, closeErr)
 }

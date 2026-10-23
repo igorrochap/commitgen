@@ -13,7 +13,9 @@ func TestPrintVersion(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 
-	printVersion(cmd)
+	if err := printVersion(cmd); err != nil {
+		t.Fatalf("printVersion() error = %v", err)
+	}
 
 	got := out.String()
 	if !strings.HasPrefix(got, "commitgen ") {
@@ -51,8 +53,8 @@ func TestVersionCommand(t *testing.T) {
 	cmd.SetArgs([]string{"version"})
 	cmd.AddCommand(&cobra.Command{
 		Use: "version",
-		Run: func(cmd *cobra.Command, args []string) {
-			printVersion(cmd)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return printVersion(cmd)
 		},
 	})
 
@@ -68,10 +70,9 @@ func newVersionFlagTestCommand(out *bytes.Buffer, called *bool) *cobra.Command {
 	version = false
 	cmd := &cobra.Command{
 		Use: "commitgen",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if version {
-				printVersion(cmd)
-				return nil
+				return printVersion(cmd)
 			}
 			*called = true
 			return nil
