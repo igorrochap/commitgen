@@ -2,6 +2,93 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-10-28)
+
+### Bug Fixes
+
+- **ci**: Fix golangci-lint installation failures
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+### Chores
+
+- **ci**: Enforce quality gates before release
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+### Continuous Integration
+
+- **release**: Push release commits with a ruleset-bypassing deploy key
+  ([#34](https://github.com/igorrochap/commitgen/pull/34),
+  [`7ef4472`](https://github.com/igorrochap/commitgen/commit/7ef4472a7e9002797cff4ae37b9bef13e3e21271))
+
+### Documentation
+
+- **project**: Add domain terminology and context guide
+  ([#31](https://github.com/igorrochap/commitgen/pull/31),
+  [`15c0af3`](https://github.com/igorrochap/commitgen/commit/15c0af3dc0ad53a2383dfc500f26e83b62759dd4))
+
+### Features
+
+- **architecture**: Add AST dependency checker script
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **cli**: Add agent mode and refactor provider options
+  ([#32](https://github.com/igorrochap/commitgen/pull/32),
+  [`d59ca67`](https://github.com/igorrochap/commitgen/commit/d59ca67818863ddf9df2b93aeb70dab4426fc8b2))
+
+- **cli**: Add agent mode to skip interactive review
+  ([#32](https://github.com/igorrochap/commitgen/pull/32),
+  [`d59ca67`](https://github.com/igorrochap/commitgen/commit/d59ca67818863ddf9df2b93aeb70dab4426fc8b2))
+
+- **cli**: Auto-enable agent mode on non-terminal streams
+  ([#33](https://github.com/igorrochap/commitgen/pull/33),
+  [`3053134`](https://github.com/igorrochap/commitgen/commit/3053134ec6a9e6455af01efb6f57ab85a2395d1c))
+
+- **quality**: Implement diff-based style and complexity gates
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **quality**: Implement format, vet, and test quality gates
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **quality**: Implement test coverage gate ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+### Refactoring
+
+- **config**: Remove agent skills and syl configuration
+  ([`b5de656`](https://github.com/igorrochap/commitgen/commit/b5de6566e6fdd86e0f6ee4442df4b8eca696e05e))
+
+- **core**: Improve code quality, testing, and CI gates
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **core**: Improve documentation and error handling
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **generator**: Encapsulate provider options
+  ([#32](https://github.com/igorrochap/commitgen/pull/32),
+  [`d59ca67`](https://github.com/igorrochap/commitgen/commit/d59ca67818863ddf9df2b93aeb70dab4426fc8b2))
+
+### Testing
+
+- **cmd**: Add comprehensive unit tests and refactor CLI commands
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **core**: Add comprehensive test suite and raise coverage
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+- **core**: Expand test coverage for generator and commands
+  ([#28](https://github.com/igorrochap/commitgen/pull/28),
+  [`25ddfa4`](https://github.com/igorrochap/commitgen/commit/25ddfa4577ec5046c7314afeb2dc909b70fc4c4e))
+
+
 ## v1.8.0 (2026-08-20)
 
 ### Chores
