@@ -19,6 +19,8 @@ type PROptions struct {
 	APIKey   string
 	Base     string
 	Head     string
+	// Agent selects Agent mode's plain output without showing a loading spinner.
+	Agent bool
 }
 
 // RunPR generates and prints a pull request description.
@@ -45,6 +47,7 @@ func RunPR(opts PROptions) error {
 		Provider: opts.Provider,
 		Model:    opts.Model,
 		APIKey:   opts.APIKey,
+		Agent:    opts.Agent,
 	}, opts.Context)
 	if err != nil {
 		return err

@@ -47,6 +47,7 @@ var prCmd = &cobra.Command{
 			APIKey:   opts.APIKey,
 			Base:     base,
 			Head:     head,
+			Agent:    opts.Agent,
 		})
 	},
 }

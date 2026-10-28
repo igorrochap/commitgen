@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -125,6 +126,213 @@ func TestRunAndRunPushUseInjectedSelectionWithoutTTY(t *testing.T) {
 			assertInjectedRunCreatesCommit(t, testCase.name, testCase.run, testCase.push)
 		})
 	}
+}
+
+func TestRunAgentCommitsWithoutReviewAndPrintsCommitMessage(t *testing.T) {
+	repoDir := makeStagedChangeRepository(t, false)
+	t.Chdir(repoDir)
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: agent commit"}`), nil
+	}))
+
+	selectionCalled := false
+	originalSelectionRunner := selectionRunner
+	selectionRunner = func(string) (selection.Result, error) {
+		selectionCalled = true
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	t.Cleanup(func() { selectionRunner = originalSelectionRunner })
+
+	loadingStarts := 0
+	withProviderLoading(t, func(<-chan struct{}) func() {
+		loadingStarts++
+		return func() {}
+	})
+
+	output := captureStdout(t, func() {
+		err := Run(Options{
+			Language: "en",
+			Model:    "gpt-5.5",
+			Provider: "openai",
+			APIKey:   "sk-test",
+			Agent:    true,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	})
+	if selectionCalled {
+		t.Fatal("Review started in Agent mode")
+	}
+	if loadingStarts != 0 {
+		t.Fatalf("loading starts = %d, want 0 in Agent mode", loadingStarts)
+	}
+
+	shortHash := runGit(t, repoDir, "rev-parse", "--short", "HEAD")
+	if got, want := output, "Commit "+shortHash+" created\n\nfeat: agent commit\n"; got != want {
+		t.Fatalf("Run() output = %q, want %q", got, want)
+	}
+	if got := runGit(t, repoDir, "log", "-1", "--format=%B"); got != "feat: agent commit" {
+		t.Fatalf("commit message = %q, want generated message", got)
+	}
+}
+
+func TestMakeAgentCommitPrintsMessageStoredByGit(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "initial")
+	t.Chdir(repoDir)
+
+	hookPath := filepath.Join(repoDir, ".git", "hooks", "commit-msg")
+	hook := "#!/bin/sh\nprintf '%s\\n' 'feat: message stored by git' > \"$1\"\n"
+	if err := os.WriteFile(hookPath, []byte(hook), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "change.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+
+	output := captureStdout(t, func() {
+		if err := makeAgentCommit("feat: generated message"); err != nil {
+			t.Fatalf("makeAgentCommit() error = %v", err)
+		}
+	})
+	shortHash := runGit(t, repoDir, "rev-parse", "--short", "HEAD")
+	if got, want := output, "Commit "+shortHash+" created\n\nfeat: message stored by git\n"; got != want {
+		t.Fatalf("makeAgentCommit() output = %q, want %q", got, want)
+	}
+	if got := runGit(t, repoDir, "log", "-1", "--format=%B"); got != "feat: message stored by git" {
+		t.Fatalf("committed message = %q, want stored message", got)
+	}
+}
+
+func TestGitCommitMessageReadsBodyAfterMultilineSignatureHeader(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feat: signed header message")
+	t.Chdir(repoDir)
+
+	commit, err := exec.Command("git", "cat-file", "commit", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git cat-file error = %v", err)
+	}
+	separator := bytes.Index(commit, []byte("\n\n"))
+	if separator < 0 {
+		t.Fatal("commit object is missing header separator")
+	}
+
+	signedCommit := append([]byte(nil), commit[:separator]...)
+	signedCommit = append(signedCommit, []byte("\ngpgsig -----BEGIN PGP SIGNATURE-----\n signature data\n -----END PGP SIGNATURE-----")...)
+	signedCommit = append(signedCommit, commit[separator:]...)
+	writeCommit := exec.Command("git", "hash-object", "-t", "commit", "-w", "--stdin")
+	writeCommit.Stdin = bytes.NewReader(signedCommit)
+	commitID, err := writeCommit.Output()
+	if err != nil {
+		t.Fatalf("git hash-object error = %v", err)
+	}
+	runGit(t, repoDir, "update-ref", "HEAD", strings.TrimSpace(string(commitID)))
+
+	message, err := gitCommitMessage()
+	if err != nil {
+		t.Fatalf("gitCommitMessage() error = %v", err)
+	}
+	if message != "feat: signed header message" {
+		t.Fatalf("gitCommitMessage() = %q, want commit message", message)
+	}
+}
+
+func TestRunInteractiveReviewsStartsLoadingAndPrintsOnlyCommitNotice(t *testing.T) {
+	repoDir := makeStagedChangeRepository(t, false)
+	t.Chdir(repoDir)
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: interactive commit"}`), nil
+	}))
+
+	selectionCalls := 0
+	originalSelectionRunner := selectionRunner
+	selectionRunner = func(message string) (selection.Result, error) {
+		selectionCalls++
+		if message != "feat: interactive commit" {
+			t.Errorf("Review message = %q, want generated message", message)
+		}
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	t.Cleanup(func() { selectionRunner = originalSelectionRunner })
+
+	loadingStarts := 0
+	withProviderLoading(t, func(done <-chan struct{}) func() {
+		loadingStarts++
+		return func() { <-done }
+	})
+
+	output := captureStdout(t, func() {
+		err := Run(Options{
+			Language: "en",
+			Model:    "gpt-5.5",
+			Provider: "openai",
+			APIKey:   "sk-test",
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	})
+	if selectionCalls != 1 {
+		t.Fatalf("Review calls = %d, want 1", selectionCalls)
+	}
+	if loadingStarts != 1 {
+		t.Fatalf("loading starts = %d, want 1", loadingStarts)
+	}
+
+	shortHash := runGit(t, repoDir, "rev-parse", "--short", "HEAD")
+	if got, want := output, "Commit "+shortHash+" created\n"; got != want {
+		t.Fatalf("Run() output = %q, want only %q", got, want)
+	}
+}
+
+func TestRunPushAgentCommitsWithoutReviewAndPushes(t *testing.T) {
+	repoDir := makeStagedChangeRepository(t, true)
+	t.Chdir(repoDir)
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: agent push"}`), nil
+	}))
+
+	selectionCalled := false
+	originalSelectionRunner := selectionRunner
+	selectionRunner = func(string) (selection.Result, error) {
+		selectionCalled = true
+		return selection.Result{Choice: selection.Accept}, nil
+	}
+	t.Cleanup(func() { selectionRunner = originalSelectionRunner })
+
+	loadingStarts := 0
+	withProviderLoading(t, func(<-chan struct{}) func() {
+		loadingStarts++
+		return func() {}
+	})
+
+	if err := RunPush(Options{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Agent:    true,
+	}); err != nil {
+		t.Fatalf("RunPush() error = %v", err)
+	}
+	if selectionCalled {
+		t.Fatal("Review started in Agent mode")
+	}
+	if loadingStarts != 0 {
+		t.Fatalf("loading starts = %d, want 0 in Agent mode", loadingStarts)
+	}
+
+	localCommit := runGit(t, repoDir, "rev-parse", "HEAD")
+	assertRemoteCommit(t, filepath.Join(repoDir, "remote.git"), localCommit)
 }
 
 func assertInjectedRunCreatesCommit(t *testing.T, name string, run func(Options) error, push bool) {
@@ -262,6 +470,7 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 	t.Chdir(repoDir)
 
 	var gotPrompt string
+	loadingStarts := 0
 	withProviderHTTPClient(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		var body struct {
 			Input string `json:"input"`
@@ -272,10 +481,11 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 		gotPrompt = body.Input
 		return jsonResponse(http.StatusOK, `{"output_text":"feat: summarize branch"}`), nil
 	}))
-	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
 	withProviderLoading(t, func(<-chan struct{}) func() {
+		loadingStarts++
 		return func() {}
 	})
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
 
 	output := captureStdout(t, func() {
 		err := RunPR(PROptions{
@@ -294,11 +504,67 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 	if output != "feat: summarize branch\n" {
 		t.Fatalf("RunPR() output = %q, want %q", output, "feat: summarize branch\n")
 	}
+	if loadingStarts != 1 {
+		t.Fatalf("loading starts = %d, want 1 in Interactive mode", loadingStarts)
+	}
 	if !strings.Contains(gotPrompt, "feat: add branch summary") {
 		t.Fatalf("prompt = %q, want branch commit subject", gotPrompt)
 	}
 	if !strings.Contains(gotPrompt, "closes issue 18") {
 		t.Fatalf("prompt = %q, want supplied context", gotPrompt)
+	}
+}
+
+func TestRunPRAgentSkipsLoading(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feature")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feat: add branch summary")
+	t.Chdir(repoDir)
+
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: summarize branch"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	loadingStarts := 0
+	withProviderLoading(t, func(<-chan struct{}) func() {
+		loadingStarts++
+		return func() {}
+	})
+
+	output := captureStdout(t, func() {
+		err := RunPR(PROptions{
+			Language: "en",
+			Model:    "gpt-5.5",
+			Provider: "openai",
+			APIKey:   "sk-test",
+			Base:     "main",
+			Head:     "feature",
+			Agent:    true,
+		})
+		if err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if output != "feat: summarize branch\n" {
+		t.Fatalf("RunPR() output = %q, want generated text only", output)
+	}
+	if loadingStarts != 0 {
+		t.Fatalf("loading starts = %d, want 0 in Agent mode", loadingStarts)
+	}
+}
+
+func TestRunAgentReturnsNoStagedChangesError(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	t.Chdir(repoDir)
+
+	err := Run(Options{Language: "en", Agent: true})
+	if err == nil || !strings.Contains(err.Error(), "no staged changes") {
+		t.Fatalf("Run() error = %v, want no staged changes error", err)
 	}
 }
 
@@ -665,7 +931,7 @@ func TestSelectOptionReturnsCommitError(t *testing.T) {
 		Provider: "openai",
 		Model:    "gpt-5.5",
 		APIKey:   "sk-test",
-	}, "", runSelection, createCommit)
+	}, "", false, runSelection, createCommit)
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
 	}
@@ -763,7 +1029,7 @@ func TestSelectOptionReturnsCommitErrorAfterEdit(t *testing.T) {
 		Provider: "openai",
 		Model:    "gpt-5.5",
 		APIKey:   "sk-test",
-	}, "", runSelection, createCommit)
+	}, "", false, runSelection, createCommit)
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
 	}

@@ -85,13 +85,14 @@ commitgen -v
 
 ### Flags
 
-| Flag         | Default        | Description                              |
-|--------------|----------------|------------------------------------------|
-| `-v`, `--version` |              | Show commitgen version                   |
-| `--context`  |                | Additional context for generation        |
-| `--language` | `en`           | Language for the commit message          |
-| `--model`    | `gemma4:31b-cloud`  | Model to use for generation       |
-| `--provider` | `ollama`       | LLM provider: `ollama`, `openai`, `anthropic`, or `gemini` |
+| Flag              | Default             | Description                                                        |
+|-------------------|---------------------|--------------------------------------------------------------------|
+| `-v`, `--version` |                     | Show commitgen version                                             |
+| `--agent`         | `false`             | Skip Review, commit the generated message directly, and keep output plain |
+| `--context`       |                     | Additional context for generation                                 |
+| `--language`      | `en`                | Language for the commit message                                    |
+| `--model`         | `gemma4:31b-cloud`   | Model to use for generation                                        |
+| `--provider`      | `ollama`             | LLM provider: `ollama`, `openai`, `anthropic`, or `gemini`         |
 
 ### Persistent defaults
 
@@ -159,9 +160,20 @@ Generate a Pull Request title and description with additional context:
 commitgen pr --context "closes the issue #15 on github"
 ```
 
+### Using commitgen from AI agents
+
+Pass `--agent` when an AI agent invokes a commit generation command through a shell without a terminal. Without it, commitgen enters Interactive mode and fails when Review tries to read keyboard input. Agent mode:
+
+```bash
+commitgen --agent
+commitgen push --agent
+```
+
+Agent mode commits the first generated message without Review. It skips the loading spinner and update notice, and keeps commitgen's output plain for a program to read. On success, stdout contains `Commit <short-hash> created`, an empty line, and the full commit message. If the generated message needs correction, use `git commit --amend`.
+
 ## Interactive selection
 
-After the message is generated, you are prompted to choose an action:
+This section describes Interactive mode. After the message is generated, you are prompted to choose an action:
 
 - **Accept** — commits immediately with the generated message
 - **Edit** — opens the message in your `$EDITOR` (falls back to `nano`, then `vim`) so you can tweak it before committing

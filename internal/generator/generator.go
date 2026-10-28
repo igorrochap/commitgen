@@ -90,6 +90,8 @@ type Options struct {
 	Model    string
 	Provider string
 	APIKey   string
+	// Agent selects Agent mode, which commits without Review and uses plain output.
+	Agent bool
 }
 
 type promptData struct {
@@ -99,7 +101,7 @@ type promptData struct {
 
 // Run generates a commit message and creates a commit after selection.
 func Run(option Options) error {
-	return run(option, selectionRunner, makeCommit)
+	return run(option, selectionRunner, commitForMode(option.Agent))
 }
 
 func run(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -119,13 +121,21 @@ func run(option Options, runSelection func(string) (selection.Result, error), cr
 		Provider: option.Provider,
 		Model:    option.Model,
 		APIKey:   option.APIKey,
-	}, option.Context, runSelection, createCommit)
+		Agent:    option.Agent,
+	}, option.Context, option.Agent, runSelection, createCommit)
 	return err
 }
 
 // RunPush generates a commit, creates it, and pushes the current branch.
 func RunPush(option Options) error {
-	return runPush(option, selectionRunner, makeCommit)
+	return runPush(option, selectionRunner, commitForMode(option.Agent))
+}
+
+func commitForMode(agentMode bool) func(string) error {
+	if agentMode {
+		return makeAgentCommit
+	}
+	return makeCommit
 }
 
 func runPush(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -148,6 +158,7 @@ func selectOption(
 	diff string,
 	provider providerOptions,
 	context string,
+	agentMode bool,
 	runSelection func(string) (selection.Result, error),
 	createCommit func(string) error,
 ) error {
@@ -155,6 +166,10 @@ func selectOption(
 		commit, err := generateCommit(tmpl, diff, provider, context)
 		if err != nil {
 			return err
+		}
+		if agentMode {
+			// Agent mode commits this first result; Interactive mode continues into Review below.
+			return createCommit(commit)
 		}
 		result, err := runSelection(commit)
 		if err != nil {
@@ -240,18 +255,46 @@ func generateCommit(tmpl *template.Template, diff string, provider providerOptio
 }
 
 func makeCommit(commit string) error {
-	commitCmd := exec.Command("git", "commit", "-m", commit)
-	err := commitCmd.Run()
+	shortHash, err := createGitCommit(commit)
 	if err != nil {
 		return err
+	}
+	fmt.Printf("Commit %s created\n", shortHash)
+	return nil
+}
+
+func makeAgentCommit(commit string) error {
+	shortHash, err := createGitCommit(commit)
+	if err != nil {
+		return err
+	}
+	committedMessage, err := gitCommitMessage()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Commit %s created\n\n%s\n", shortHash, committedMessage)
+	return nil
+}
+
+func gitCommitMessage() (string, error) {
+	message, err := exec.Command("git", "log", "-1", "--format=%B").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(message)), nil
+}
+
+func createGitCommit(commit string) (string, error) {
+	commitCmd := exec.Command("git", "commit", "-m", commit)
+	if err := commitCmd.Run(); err != nil {
+		return "", err
 	}
 	getIDCmd := exec.Command("git", "rev-parse", "--short", "HEAD")
 	id, err := getIDCmd.Output()
 	if err != nil {
-		return err
+		return "", err
 	}
-	fmt.Printf("Commit %s created\n", strings.TrimSpace(string(id)))
-	return nil
+	return strings.TrimSpace(string(id)), nil
 }
 
 func edit(commit string) (string, error) {

@@ -19,6 +19,7 @@ var (
 	language string
 	model    string
 	provider string
+	agent    bool
 	version  bool
 )
 
@@ -28,10 +29,11 @@ var configPath = appconfig.Path
 var rootCmd = &cobra.Command{
 	Use:          "commitgen",
 	Short:        "Generate commits based on changes made in the project",
-	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. It uses an LLM to generate the commit for you to review`,
+	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. In Interactive mode, every generated message goes through Review. In Agent mode, pass --agent to commit the generated message directly with plain output.`,
 	SilenceUsage: true,
 	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-		if version {
+		skipUpdateCheck := version || agent
+		if skipUpdateCheck {
 			return
 		}
 		notifyUpdate(cmd)
@@ -60,6 +62,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
+	rootCmd.PersistentFlags().BoolVar(&agent, "agent", false, "Agent mode: skip Review, commit the generated message directly, and keep output plain")
 	registerGenerationFlags(rootCmd, "Commit language", "LLM model")
 }
 
@@ -105,6 +108,7 @@ func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
 		Model:    cfg.Model,
 		Provider: cfg.Provider,
 		APIKey:   selectedAPIKey,
+		Agent:    agent,
 	}, nil
 }
 
