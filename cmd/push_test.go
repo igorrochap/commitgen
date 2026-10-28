@@ -45,6 +45,7 @@ func TestPushCommandPassesOptionsToGeneration(t *testing.T) {
 		return nil, errors.New("offline")
 	}))
 	resetPushCommand(t)
+	withTerminalStreams(t, true, true)
 	rootCmd.SetArgs([]string{"push", "--context", "release notes", "--version=false"})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)

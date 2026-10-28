@@ -11,28 +11,36 @@ import (
 	"github.com/igorrochap/commitgen/internal/generator"
 	"github.com/igorrochap/commitgen/internal/updatecheck"
 
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
 
 var (
-	context  string
-	language string
-	model    string
-	provider string
-	agent    bool
-	version  bool
+	context           string
+	language          string
+	model             string
+	provider          string
+	agent             bool
+	resolvedAgentMode bool
+	version           bool
 )
 
 var configPath = appconfig.Path
+var runCommitGeneration = generator.Run
+
+var detectTerminalStreams = func() (stdinIsTerminal, stdoutIsTerminal bool) {
+	return isatty.IsTerminal(os.Stdin.Fd()), isatty.IsTerminal(os.Stdout.Fd())
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:          "commitgen",
 	Short:        "Generate commits based on changes made in the project",
-	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. In Interactive mode, every generated message goes through Review. In Agent mode, pass --agent to commit the generated message directly with plain output.`,
+	Long:         `Commit generator helps you to generate commits using the conventional commit pattern. In Interactive mode, every generated message goes through Review. Agent mode commits the generated message directly with plain output and is enabled automatically when stdin or stdout is not a terminal.`,
 	SilenceUsage: true,
 	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-		skipUpdateCheck := version || agent
+		resolvedAgentMode = agentModeEnabled(agent)
+		skipUpdateCheck := version || resolvedAgentMode
 		if skipUpdateCheck {
 			return
 		}
@@ -43,11 +51,11 @@ var rootCmd = &cobra.Command{
 			return printVersion(cmd)
 		}
 
-		opts, err := effectiveOptions(cmd)
+		opts, err := effectiveOptions(cmd, resolvedAgentMode)
 		if err != nil {
 			return err
 		}
-		return generator.Run(opts)
+		return runCommitGeneration(opts)
 	},
 }
 
@@ -62,7 +70,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVarP(&version, "version", "v", false, "Show commitgen version")
-	rootCmd.PersistentFlags().BoolVar(&agent, "agent", false, "Agent mode: skip Review, commit the generated message directly, and keep output plain")
+	rootCmd.PersistentFlags().BoolVar(&agent, "agent", false, "Run without Review: commit the generated message directly, plain output (auto-enabled when no terminal is detected)")
 	registerGenerationFlags(rootCmd, "Commit language", "LLM model")
 }
 
@@ -73,7 +81,7 @@ func registerGenerationFlags(cmd *cobra.Command, languageHelp, modelHelp string)
 	cmd.Flags().StringVar(&provider, "provider", appconfig.DefaultProvider, "LLM provider (ollama, openai, anthropic, gemini)")
 }
 
-func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
+func effectiveOptions(cmd *cobra.Command, agentMode bool) (generator.Options, error) {
 	path, err := configPath()
 	if err != nil {
 		return generator.Options{}, err
@@ -108,8 +116,14 @@ func effectiveOptions(cmd *cobra.Command) (generator.Options, error) {
 		Model:    cfg.Model,
 		Provider: cfg.Provider,
 		APIKey:   selectedAPIKey,
-		Agent:    agent,
+		Agent:    agentMode,
 	}, nil
+}
+
+func agentModeEnabled(agentFlag bool) bool {
+	stdinIsTerminal, stdoutIsTerminal := detectTerminalStreams()
+	streamIsNotTerminal := !stdinIsTerminal || !stdoutIsTerminal
+	return agentFlag || streamIsNotTerminal
 }
 
 func notifyUpdate(cmd *cobra.Command) {

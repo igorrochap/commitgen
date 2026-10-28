@@ -237,7 +237,7 @@ func TestEffectiveOptionsUsesSavedConfig(t *testing.T) {
 	}
 	cmd := newRootTestCommand()
 
-	opts, err := effectiveOptions(cmd)
+	opts, err := effectiveOptions(cmd, false)
 	if err != nil {
 		t.Fatalf("effectiveOptions() error = %v", err)
 	}
@@ -277,7 +277,7 @@ func TestEffectiveOptionsFlagsOverrideSavedConfig(t *testing.T) {
 		"provider": "gemini",
 	})
 
-	opts, err := effectiveOptions(cmd)
+	opts, err := effectiveOptions(cmd, false)
 	if err != nil {
 		t.Fatalf("effectiveOptions() error = %v", err)
 	}
@@ -297,7 +297,7 @@ func TestEffectiveOptionsRejectsHostedProviderWithoutConfiguredAPIKey(t *testing
 	}
 	cmd := newRootTestCommand()
 
-	if _, err := effectiveOptions(cmd); err == nil {
+	if _, err := effectiveOptions(cmd, false); err == nil {
 		t.Fatal("effectiveOptions() error = nil, want missing api key error")
 	}
 }
@@ -309,7 +309,7 @@ func TestEffectiveOptionsRejectsUnsupportedSavedProvider(t *testing.T) {
 		t.Fatalf("SaveFile() error = %v", err)
 	}
 
-	if _, err := effectiveOptions(newRootTestCommand()); err == nil {
+	if _, err := effectiveOptions(newRootTestCommand(), false); err == nil {
 		t.Fatal("effectiveOptions() error = nil, want unsupported-provider error")
 	}
 }
@@ -318,14 +318,14 @@ func TestEffectiveOptionsPropagatesConfigErrors(t *testing.T) {
 	t.Run("path error", func(t *testing.T) {
 		pathErr := errors.New("config path unavailable")
 		withConfigPathError(t, pathErr)
-		if _, err := effectiveOptions(newRootTestCommand()); !errors.Is(err, pathErr) {
+		if _, err := effectiveOptions(newRootTestCommand(), false); !errors.Is(err, pathErr) {
 			t.Fatalf("effectiveOptions() error = %v, want %v", err, pathErr)
 		}
 	})
 
 	t.Run("load error", func(t *testing.T) {
 		withConfigPath(t, t.TempDir())
-		if _, err := effectiveOptions(newRootTestCommand()); err == nil {
+		if _, err := effectiveOptions(newRootTestCommand(), false); err == nil {
 			t.Fatal("effectiveOptions() error = nil, want config read error")
 		}
 	})

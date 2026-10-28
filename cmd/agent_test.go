@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	appconfig "github.com/igorrochap/commitgen/internal/config"
+	"github.com/igorrochap/commitgen/internal/generator"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -30,6 +32,7 @@ func TestAgentFlagIsAvailableOnEveryCommandAndSkipsUpdateChecks(t *testing.T) {
 		return updateResponse(`{"Version":"v99.0.0"}`), nil
 	}))
 	installFakeGo(t)
+	withTerminalStreams(t, true, true)
 
 	commands := []struct {
 		args      []string
@@ -43,6 +46,43 @@ func TestAgentFlagIsAvailableOnEveryCommandAndSkipsUpdateChecks(t *testing.T) {
 		{args: []string{"config", "set", "--model", "test-model", "--agent"}},
 		{args: []string{"version", "--agent"}},
 		{args: []string{"update", "--agent"}},
+	}
+	for _, command := range commands {
+		t.Run(strings.Join(command.args, " "), func(t *testing.T) {
+			assertAgentCommandAccepted(t, command.args, command.wantError, &updateChecks)
+		})
+	}
+}
+
+func TestAutomaticAgentModeSkipsUpdateChecksForEveryCommand(t *testing.T) {
+	repoDir := createSingleCommitRepo(t)
+	t.Chdir(repoDir)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	withConfigPath(t, configPath)
+	if err := appconfig.SaveFile(configPath, appconfig.Defaults()); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
+	}
+
+	updateChecks := 0
+	withUpdateTransport(t, commandRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		updateChecks++
+		return updateResponse(`{"Version":"v99.0.0"}`), nil
+	}))
+	installFakeGo(t)
+	withTerminalStreams(t, false, false)
+
+	commands := []struct {
+		args      []string
+		wantError string
+	}{
+		{args: []string{}, wantError: "no staged changes"},
+		{args: []string{"push"}, wantError: "no staged changes"},
+		{args: []string{"pr"}, wantError: "no commits found"},
+		{args: []string{"config"}},
+		{args: []string{"config", "show"}},
+		{args: []string{"config", "set", "--model", "test-model"}},
+		{args: []string{"version"}},
+		{args: []string{"update"}},
 	}
 	for _, command := range commands {
 		t.Run(strings.Join(command.args, " "), func(t *testing.T) {
@@ -80,7 +120,16 @@ func assertCommandError(t *testing.T, args []string, err error, wantError string
 	}
 }
 
-func TestRootCommandAgentCommitsMessageWithPlainOutput(t *testing.T) {
+func withTerminalStreams(t *testing.T, stdinIsTerminal, stdoutIsTerminal bool) {
+	t.Helper()
+	originalDetectTerminalStreams := detectTerminalStreams
+	detectTerminalStreams = func() (bool, bool) {
+		return stdinIsTerminal, stdoutIsTerminal
+	}
+	t.Cleanup(func() { detectTerminalStreams = originalDetectTerminalStreams })
+}
+
+func TestRootCommandAutomaticallyEntersAgentModeWithoutTerminal(t *testing.T) {
 	repoDir := createPullRequestRepo(t)
 	stageCommandChange(t, repoDir)
 	t.Chdir(repoDir)
@@ -96,9 +145,10 @@ func TestRootCommandAgentCommitsMessageWithPlainOutput(t *testing.T) {
 	}))
 
 	resetCommandTree(t)
+	withTerminalStreams(t, false, false)
 	var stderr bytes.Buffer
 	rootCmd.SetErr(&stderr)
-	rootCmd.SetArgs([]string{"--agent"})
+	rootCmd.SetArgs(nil)
 	var commandErr error
 	output := captureCommandStdout(t, func() {
 		commandErr = rootCmd.Execute()
@@ -118,6 +168,72 @@ func TestRootCommandAgentCommitsMessageWithPlainOutput(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "A new commitgen version is available") {
 		t.Fatalf("stderr contains update notice: %q", stderr.String())
+	}
+}
+
+func TestRootCommandSelectsModeFromTerminalStreamsAndAgentFlag(t *testing.T) {
+	repoDir := createSingleCommitRepo(t)
+	t.Chdir(repoDir)
+	configureHostedProvider(t)
+
+	withUpdateTransport(t, commandRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return updateResponse(`{"Version":"v1.0.0"}`), nil
+	}))
+
+	tests := []struct {
+		name             string
+		stdinIsTerminal  bool
+		stdoutIsTerminal bool
+		agentFlag        bool
+		wantAgentMode    bool
+	}{
+		{name: "terminal stdin and terminal stdout", stdinIsTerminal: true, stdoutIsTerminal: true},
+		{name: "terminal stdin and terminal stdout with flag", stdinIsTerminal: true, stdoutIsTerminal: true, agentFlag: true, wantAgentMode: true},
+		{name: "terminal stdin and piped stdout", stdinIsTerminal: true, wantAgentMode: true},
+		{name: "terminal stdin and piped stdout with flag", stdinIsTerminal: true, agentFlag: true, wantAgentMode: true},
+		{name: "piped stdin and terminal stdout", stdoutIsTerminal: true, wantAgentMode: true},
+		{name: "piped stdin and terminal stdout with flag", stdoutIsTerminal: true, agentFlag: true, wantAgentMode: true},
+		{name: "piped stdin and piped stdout", wantAgentMode: true},
+		{name: "piped stdin and piped stdout with flag", agentFlag: true, wantAgentMode: true},
+	}
+
+	modeError := errors.New("stop after resolving mode")
+	originalRunCommitGeneration := runCommitGeneration
+	var gotAgentMode bool
+	runCommitGeneration = func(options generator.Options) error {
+		gotAgentMode = options.Agent
+		return modeError
+	}
+	t.Cleanup(func() { runCommitGeneration = originalRunCommitGeneration })
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resetCommandTree(t)
+			terminalChecks := 0
+			originalDetectTerminalStreams := detectTerminalStreams
+			detectTerminalStreams = func() (bool, bool) {
+				terminalChecks++
+				return test.stdinIsTerminal, test.stdoutIsTerminal
+			}
+			t.Cleanup(func() { detectTerminalStreams = originalDetectTerminalStreams })
+			gotAgentMode = false
+			args := []string{}
+			if test.agentFlag {
+				args = append(args, "--agent")
+			}
+			rootCmd.SetArgs(args)
+
+			err := rootCmd.Execute()
+			if !errors.Is(err, modeError) {
+				t.Fatalf("root command error = %v, want %v", err, modeError)
+			}
+			if gotAgentMode != test.wantAgentMode {
+				t.Fatalf("Agent mode = %t, want %t", gotAgentMode, test.wantAgentMode)
+			}
+			if terminalChecks != 1 {
+				t.Fatalf("terminal checks = %d, want 1", terminalChecks)
+			}
+		})
 	}
 }
 
@@ -218,9 +334,10 @@ func TestAgentFlagHelpIsInheritedByGenerationCommands(t *testing.T) {
 				t.Fatalf("Execute(%q) error = %v", args, err)
 			}
 			if !strings.Contains(output.String(), "--agent") ||
-				!strings.Contains(output.String(), "skip Review") ||
+				!strings.Contains(output.String(), "Run without Review") ||
 				!strings.Contains(output.String(), "commit the generated message directly") ||
-				!strings.Contains(output.String(), "keep output plain") {
+				!strings.Contains(output.String(), "plain output") ||
+				!strings.Contains(output.String(), "auto-enabled when no terminal is detected") {
 				t.Fatalf("help for %q does not describe Agent mode: %q", args, output.String())
 			}
 		})
@@ -229,6 +346,7 @@ func TestAgentFlagHelpIsInheritedByGenerationCommands(t *testing.T) {
 
 func TestCommandWithoutAgentStillPrintsUpdateNotice(t *testing.T) {
 	resetCommandTree(t)
+	withTerminalStreams(t, true, true)
 	var stderr bytes.Buffer
 	rootCmd.SetErr(&stderr)
 	rootCmd.SetArgs([]string{"version"})
