@@ -12,7 +12,7 @@ var pushCmd = &cobra.Command{
 	Short:        "Generate a commit and push it to the remote",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		opts, err := effectiveOptions(cmd)
+		opts, err := effectiveOptions(cmd, resolvedAgentMode)
 		if err != nil {
 			return err
 		}

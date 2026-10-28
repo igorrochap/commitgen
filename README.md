@@ -88,7 +88,7 @@ commitgen -v
 | Flag              | Default             | Description                                                        |
 |-------------------|---------------------|--------------------------------------------------------------------|
 | `-v`, `--version` |                     | Show commitgen version                                             |
-| `--agent`         | `false`             | Skip Review, commit the generated message directly, and keep output plain |
+| `--agent`         | `false`             | Run without Review: commit the generated message directly, plain output (auto-enabled when no terminal is detected) |
 | `--context`       |                     | Additional context for generation                                 |
 | `--language`      | `en`                | Language for the commit message                                    |
 | `--model`         | `gemma4:31b-cloud`   | Model to use for generation                                        |
@@ -162,9 +162,16 @@ commitgen pr --context "closes the issue #15 on github"
 
 ### Using commitgen from AI agents
 
-Pass `--agent` when an AI agent invokes a commit generation command through a shell without a terminal. Without it, commitgen enters Interactive mode and fails when Review tries to read keyboard input. Agent mode:
+commitgen enters Agent mode automatically when stdin or stdout is not a terminal. A shell pipeline such as `commitgen | tee log.txt` has non-terminal stdout, so a human running it also gets a commit without Review.
+
+When both stdin and stdout are terminals, commitgen enters Interactive mode unless `--agent` is set. Pass `--agent` when a harness attaches a pseudo-terminal: automatic detection sees the terminal, but the agent cannot perform Review.
 
 ```bash
+# These automatically enter Agent mode when either stream is not a terminal
+commitgen
+commitgen push
+
+# Force Agent mode when a harness attaches a pseudo-terminal
 commitgen --agent
 commitgen push --agent
 ```
