@@ -101,7 +101,8 @@ type promptData struct {
 
 // Run generates a commit message and creates a commit after selection.
 func Run(option Options) error {
-	return run(option, selectionRunner, commitForMode(option.Agent))
+	provider := providerOptionsFrom(option)
+	return run(option, selectionRunner, commitForMode(provider))
 }
 
 func run(option Options, runSelection func(string) (selection.Result, error), createCommit func(string) error) error {
@@ -117,22 +118,26 @@ func run(option Options, runSelection func(string) (selection.Result, error), cr
 	if err != nil {
 		return err
 	}
-	err = selectOption(tmpl, diff, providerOptions{
+	err = selectOption(tmpl, diff, providerOptionsFrom(option), option.Context, runSelection, createCommit)
+	return err
+}
+
+func providerOptionsFrom(option Options) providerOptions {
+	return providerOptions{
 		Provider: option.Provider,
 		Model:    option.Model,
 		APIKey:   option.APIKey,
 		Agent:    option.Agent,
-	}, option.Context, option.Agent, runSelection, createCommit)
-	return err
+	}
 }
 
 // RunPush generates a commit, creates it, and pushes the current branch.
 func RunPush(option Options) error {
-	return runPush(option, selectionRunner, commitForMode(option.Agent))
+	return runPush(option, selectionRunner, commitForMode(providerOptionsFrom(option)))
 }
 
-func commitForMode(agentMode bool) func(string) error {
-	if agentMode {
+func commitForMode(provider providerOptions) func(string) error {
+	if provider.Agent {
 		return makeAgentCommit
 	}
 	return makeCommit
@@ -158,7 +163,6 @@ func selectOption(
 	diff string,
 	provider providerOptions,
 	context string,
-	agentMode bool,
 	runSelection func(string) (selection.Result, error),
 	createCommit func(string) error,
 ) error {
@@ -167,7 +171,7 @@ func selectOption(
 		if err != nil {
 			return err
 		}
-		if agentMode {
+		if provider.Agent {
 			// Agent mode commits this first result; Interactive mode continues into Review below.
 			return createCommit(commit)
 		}
@@ -259,7 +263,7 @@ func makeCommit(commit string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Commit %s created\n", shortHash)
+	printCommitCreated(shortHash)
 	return nil
 }
 
@@ -272,8 +276,16 @@ func makeAgentCommit(commit string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Commit %s created\n\n%s\n", shortHash, committedMessage)
+	printCommitCreated(shortHash, committedMessage)
 	return nil
+}
+
+func printCommitCreated(shortHash string, message ...string) {
+	fmt.Printf("Commit %s created\n", shortHash)
+	if len(message) == 0 {
+		return
+	}
+	fmt.Printf("\n%s\n", message[0])
 }
 
 func gitCommitMessage() (string, error) {

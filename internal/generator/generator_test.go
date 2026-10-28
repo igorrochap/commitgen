@@ -931,7 +931,7 @@ func TestSelectOptionReturnsCommitError(t *testing.T) {
 		Provider: "openai",
 		Model:    "gpt-5.5",
 		APIKey:   "sk-test",
-	}, "", false, runSelection, createCommit)
+	}, "", runSelection, createCommit)
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
 	}
@@ -1029,7 +1029,7 @@ func TestSelectOptionReturnsCommitErrorAfterEdit(t *testing.T) {
 		Provider: "openai",
 		Model:    "gpt-5.5",
 		APIKey:   "sk-test",
-	}, "", false, runSelection, createCommit)
+	}, "", runSelection, createCommit)
 	if !errors.Is(err, commitErr) {
 		t.Fatalf("selectOption() error = %v, want %v", err, commitErr)
 	}
