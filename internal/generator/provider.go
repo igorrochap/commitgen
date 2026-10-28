@@ -25,6 +25,7 @@ type providerOptions struct {
 	Provider string
 	Model    string
 	APIKey   string
+	Agent    bool
 }
 
 type textProvider interface {
@@ -61,13 +62,18 @@ func generateText(opts providerOptions, prompt string) (string, error) {
 		return "", err
 	}
 
-	done := make(chan struct{})
-	wait := startLoading(done)
-
+	var done chan struct{}
+	var wait func()
+	if !opts.Agent {
+		done = make(chan struct{})
+		wait = startLoading(done)
+	}
 	result, err := provider.Generate(prompt)
 
-	close(done)
-	wait()
+	if !opts.Agent {
+		close(done)
+		wait()
+	}
 
 	if err != nil {
 		return "", err
