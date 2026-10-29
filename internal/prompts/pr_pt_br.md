@@ -12,7 +12,7 @@ Titulo: <título>
 
 ## Motivação / Contexto
 
-<por que a mudança é necessária>
+<por que a mudança é necessária — omita esta seção se nenhuma motivação puder ser inferida de forma razoável>
 
 ## Mudanças
 
@@ -46,9 +46,10 @@ Titulo: <título>
 - Baseie o resumo na entrada; não acrescente afirmações sem suporte.
 
 **Motivação / Contexto:**
-- Explique por que a mudança é necessária usando apenas informações apoiadas pela entrada.
-- Não infira motivações que não foram informadas.
-- Se a entrada não informar a motivação, diga que as mensagens dos commits e o contexto adicional fornecidos não informam a motivação.
+- Explique por que a mudança é necessária. Use a motivação informada na entrada quando houver uma.
+- Caso contrário, informe o problema que as mudanças resolvem quando ele decorrer diretamente delas.
+- Não invente motivos de negócio, métricas, incidentes ou partes interessadas.
+- Omita esta seção quando nenhuma motivação puder ser inferida de forma razoável.
 
 **Mudanças:**
 - Sintetize commits relacionados em temas e use um rótulo em negrito para cada bullet.
@@ -81,6 +82,7 @@ Titulo: <título>
 - Gere apenas a linha do título e o corpo da descrição do PR, sem bloco de código markdown, preâmbulo ou explicação.
 - Mantenha o título na linha `Titulo:`, seguido pelo corpo da descrição.
 - Escreva em português.
+- Nunca comente se a entrada é suficiente nem descreva o que falta na entrada.
 
 {{if .Context}}## Contexto adicional
 {{.Context}}

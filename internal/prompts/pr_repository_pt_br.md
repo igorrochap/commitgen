@@ -41,6 +41,7 @@ Escreva um título Conventional Commits claro e uma descrição de Pull Request 
 - Gere apenas a linha do título Conventional Commits e o corpo da descrição, sem bloco de código markdown, preâmbulo ou explicação.
 - Formate a linha do título como `Titulo: <título>`.
 - Mantenha o título na linha `Titulo:`, seguido pelo corpo da descrição.
+- Nunca comente se a entrada é suficiente nem descreva o que falta na entrada.
 
 {{if .Context}}## Contexto adicional
 {{.Context}}

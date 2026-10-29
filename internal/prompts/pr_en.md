@@ -12,7 +12,7 @@ Title: <title>
 
 ## Motivation / Context
 
-<why the change is necessary>
+<why the change is necessary — omit this section if no motivation can reasonably be inferred>
 
 ## Changes
 
@@ -45,9 +45,10 @@ Title: <title>
 - Base the summary on the input; do not add unsupported claims.
 
 **Motivation / Context:**
-- Explain why the change is necessary using only information supported by the input.
-- Do not infer unstated motivations.
-- If the input does not state a motivation, say that the provided commit messages and additional context do not state one.
+- Explain why the change is necessary. Use a motivation stated in the input when there is one.
+- Otherwise, state the problem the changes solve when it follows directly from them.
+- Do not invent business reasons, metrics, incidents, or stakeholders.
+- Omit this section when no motivation can reasonably be inferred.
 
 **Changes:**
 - Synthesize related commits into themes and use a bold label for each bullet.
@@ -79,6 +80,7 @@ Title: <title>
 - Output only the title line and PR description body, with no markdown code block, preamble, or explanation.
 - Keep the title on the `Title:` line, followed by the description body.
 - Write in English.
+- Never comment on whether the input is sufficient or describe what the input lacks.
 
 {{if .Context}}## Additional context
 {{.Context}}

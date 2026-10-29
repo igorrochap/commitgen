@@ -71,6 +71,7 @@ func TestGetPRRepositoryTemplatePromptsStateFillRules(t *testing.T) {
 				"Do not translate the repository template's headings.",
 				"How to test",
 				"Do not invent issue references.",
+				"Never comment on whether the input is sufficient",
 			},
 		},
 		{
@@ -85,6 +86,7 @@ func TestGetPRRepositoryTemplatePromptsStateFillRules(t *testing.T) {
 				"Não traduza os títulos do template do repositório.",
 				"Como testar",
 				"Não invente referências a issues.",
+				"Nunca comente se a entrada é suficiente",
 			},
 		},
 	}
@@ -130,7 +132,10 @@ func TestGetPRPromptsUseBuiltInTemplate(t *testing.T) {
 			rules: []string{
 				"1 to 3 sentences",
 				"Explain why the change is necessary",
-				"do not state one",
+				"state the problem the changes solve when it follows directly from them",
+				"Do not invent business reasons, metrics, incidents, or stakeholders",
+				"Omit this section when no motivation can reasonably be inferred",
+				"Never comment on whether the input is sufficient",
 				"Synthesize related commits into themes",
 				"bold label",
 				"Do not write one bullet per commit",
@@ -173,7 +178,10 @@ func TestGetPRPromptsUseBuiltInTemplate(t *testing.T) {
 			rules: []string{
 				"1 a 3 frases",
 				"Explique por que a mudança é necessária",
-				"não informam a motivação",
+				"informe o problema que as mudanças resolvem quando ele decorrer diretamente delas",
+				"Não invente motivos de negócio, métricas, incidentes ou partes interessadas",
+				"Omita esta seção quando nenhuma motivação puder ser inferida de forma razoável",
+				"Nunca comente se a entrada é suficiente",
 				"Sintetize commits relacionados em temas",
 				"rótulo em negrito",
 				"Não escreva um bullet por commit",
@@ -218,6 +226,8 @@ func TestGetPRPromptsUseBuiltInTemplate(t *testing.T) {
 				"screenshot",
 				"type of change",
 				"checklist",
+				"do not state one",
+				"não informam a motivação",
 			})
 		})
 	}

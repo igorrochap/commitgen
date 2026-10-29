@@ -40,6 +40,7 @@ Write a clear Conventional Commits title and pull request description using only
 - Output only the Conventional Commits title line and the description body, with no markdown code block, preamble, or explanation.
 - Format the title line as `Title: <title>`.
 - Keep the title on the `Title:` line, followed by the description body.
+- Never comment on whether the input is sufficient or describe what the input lacks.
 
 {{if .Context}}## Additional context
 {{.Context}}
