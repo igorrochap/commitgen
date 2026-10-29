@@ -10,6 +10,8 @@ import (
 	"github.com/igorrochap/commitgen/internal/prompts"
 )
 
+const prDiffstatFileLimit = 100
+
 // PROptions configures pull request description generation.
 type PROptions struct {
 	Context  string
@@ -37,18 +39,27 @@ func RunPR(opts PROptions) error {
 	if strings.TrimSpace(log) == "" {
 		return fmt.Errorf("no commits found between %s and %s", opts.Base, opts.Head)
 	}
+	diffstat, err := getBranchDiffstat(opts.Base, opts.Head)
+	if err != nil {
+		return err
+	}
 
 	tmpl, err := template.New("pr").Parse(prompt)
 	if err != nil {
 		return err
 	}
 
-	result, err := generateCommit(tmpl, log, providerOptions{
+	result, err := generatePrompt(tmpl, promptData{
+		Context:  opts.Context,
+		Diff:     log,
+		Diffstat: diffstat,
+		Branch:   opts.Head,
+	}, providerOptions{
 		Provider: opts.Provider,
 		Model:    opts.Model,
 		APIKey:   opts.APIKey,
 		Agent:    opts.Agent,
-	}, opts.Context)
+	})
 	if err != nil {
 		return err
 	}
@@ -63,6 +74,16 @@ func getBranchLog(base, head string) (string, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git log %s: %w", ref, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func getBranchDiffstat(base, head string) (string, error) {
+	ref := base + "..." + head
+	cmd := exec.Command("git", "diff", "--stat", fmt.Sprintf("--stat-count=%d", prDiffstatFileLimit), ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git diff --stat --stat-count=%d %s: %w", prDiffstatFileLimit, ref, err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

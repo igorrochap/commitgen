@@ -35,6 +35,7 @@ Title: <title>
 
 **Title:**
 - Use the Conventional Commits format `<type>(<scope>): <description>`.
+- Use the head branch name's type prefix as a hint for the title type.
 - Use imperative mood.
 - Maximum 72 characters.
 - No period at the end.
@@ -55,6 +56,7 @@ Title: <title>
 
 **How to test:**
 - Use only evidence in the input. Evidence includes verification text in commit bodies, test files named in commits, CLI commands or flags named in commits, and `--context`.
+- Use the diffstat's changed file paths and change counts as evidence for both "Changes" and "How to test".
 - When no concrete evidence exists, give a short, high-level verification approach without claiming that verification was run.
 - Do not invent commands, flags, endpoints, URLs, or test names.
 
@@ -64,9 +66,13 @@ Title: <title>
 
 **Related issues:**
 - Include this section only when the prompt input contains a real issue reference.
+- Use an issue reference in the head branch name here when it contains one.
 - Use `Closes #N` for GitHub-style references; preserve other real issue identifiers as provided.
-- Do not invent issue references.
+- Do not invent issue references; a reference must appear in the head branch name, commit messages, or `--context`.
 - Omit this section when the input contains no real issue reference.
+
+**Head branch name:**
+- Give no meaning to `main`, `master`, `HEAD`, or a commit SHA as a branch name.
 
 ## Output rules
 
@@ -77,6 +83,14 @@ Title: <title>
 {{if .Context}}## Additional context
 {{.Context}}
 
-{{end}}## Commit log
+{{end}}## Head branch name
+
+{{.Branch}}
+
+## Diffstat
+
+{{.Diffstat}}
+
+## Commit log
 
 {{.Diff}}

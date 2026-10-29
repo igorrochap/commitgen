@@ -35,6 +35,7 @@ Titulo: <título>
 
 **Título:**
 - Use o formato Conventional Commits `<type>(<scope>): <description>`.
+- Use o prefixo de tipo do nome da branch head como uma pista para o tipo do título.
 - Use o modo imperativo.
 - Máximo de 72 caracteres.
 - Sem ponto no final.
@@ -57,6 +58,7 @@ Titulo: <título>
 
 **Como testar:**
 - Use apenas evidências na entrada. As evidências incluem texto de verificação nos corpos dos commits, arquivos de teste mencionados nos commits, comandos ou flags de CLI mencionados nos commits e `--context`.
+- Use os caminhos dos arquivos alterados e as contagens do diffstat como evidências para "Mudanças" e "Como testar".
 - Quando não houver evidências concretas, apresente uma abordagem breve e de alto nível para verificação, sem afirmar que ela foi executada.
 - Não invente comandos, flags, endpoints, URLs ou nomes de testes.
 
@@ -66,9 +68,13 @@ Titulo: <título>
 
 **Problemas relacionados:**
 - Inclua esta seção somente quando a entrada do prompt contiver uma referência real a issue.
+- Use aqui uma referência a issue presente no nome da branch head quando houver uma.
 - Use `Closes #N` para referências no estilo GitHub; mantenha outros identificadores reais de issue exatamente como foram fornecidos.
-- Não invente referências a issues.
+- Não invente referências a issues; uma referência deve aparecer no nome da branch head, nas mensagens dos commits ou em `--context`.
 - Omita esta seção quando a entrada não contiver uma referência real a issue.
+
+**Nome da branch head:**
+- Não atribua significado a `main`, `master`, `HEAD` ou a um SHA de commit como nome de branch.
 
 ## Regras de saída
 
@@ -79,6 +85,14 @@ Titulo: <título>
 {{if .Context}}## Contexto adicional
 {{.Context}}
 
-{{end}}## Log de commits
+{{end}}## Nome da branch head
+
+{{.Branch}}
+
+## Diffstat
+
+{{.Diffstat}}
+
+## Log de commits
 
 {{.Diff}}
