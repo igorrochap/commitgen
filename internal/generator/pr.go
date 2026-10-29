@@ -3,7 +3,9 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -43,17 +45,28 @@ func RunPR(opts PROptions) error {
 	if err != nil {
 		return err
 	}
+	templatePath, repositoryTemplate, err := findRepositoryPRTemplate()
+	if err != nil {
+		return err
+	}
+	prompt, err = selectPRPrompt(opts.Language, prompt, templatePath)
+	if err != nil {
+		return err
+	}
 
 	tmpl, err := template.New("pr").Parse(prompt)
 	if err != nil {
 		return err
 	}
 
+	printPRTemplateNotice(opts.Agent, templatePath)
+
 	result, err := generatePrompt(tmpl, promptData{
-		Context:  opts.Context,
-		Diff:     log,
-		Diffstat: diffstat,
-		Branch:   opts.Head,
+		Context:            opts.Context,
+		Diff:               log,
+		Diffstat:           diffstat,
+		Branch:             opts.Head,
+		RepositoryTemplate: repositoryTemplate,
 	}, providerOptions{
 		Provider: opts.Provider,
 		Model:    opts.Model,
@@ -66,6 +79,127 @@ func RunPR(opts PROptions) error {
 
 	fmt.Println(result)
 	return nil
+}
+
+func selectPRPrompt(language, builtInPrompt, templatePath string) (string, error) {
+	if templatePath == "" {
+		return builtInPrompt, nil
+	}
+	prompt, ok := prompts.GetPRRepositoryTemplate(language)
+	if !ok {
+		return "", fmt.Errorf("language %s not supported", language)
+	}
+	return prompt, nil
+}
+
+func printPRTemplateNotice(agent bool, templatePath string) {
+	if agent {
+		return
+	}
+	if templatePath == "" {
+		fmt.Fprintln(os.Stderr, "Using built-in PR template")
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Using PR template: %s\n", templatePath)
+}
+
+func findRepositoryPRTemplate() (string, string, error) {
+	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
+	}
+	rootPath := strings.TrimSpace(string(root))
+
+	for _, relativePath := range []string{
+		".github/pull_request_template.md",
+		"pull_request_template.md",
+		"docs/pull_request_template.md",
+		".gitlab/merge_request_templates/Default.md",
+		".azuredevops/pull_request_template.md",
+	} {
+		foundPath, content, found, err := readRepositoryPRTemplate(rootPath, relativePath)
+		if err != nil {
+			return "", "", err
+		}
+		if found {
+			return foundPath, content, nil
+		}
+	}
+	return "", "", nil
+}
+
+func readRepositoryPRTemplate(rootPath, relativePath string) (string, string, bool, error) {
+	directory := filepath.Dir(relativePath)
+	directoryPath, exists, err := findRepositoryTemplateDirectory(rootPath, directory)
+	if err != nil {
+		return "", "", false, err
+	}
+	if !exists {
+		return "", "", false, nil
+	}
+	entries, err := os.ReadDir(directoryPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("read PR template %s: %w", relativePath, err)
+	}
+
+	for _, entry := range entries {
+		if !strings.EqualFold(entry.Name(), filepath.Base(relativePath)) {
+			continue
+		}
+		foundPath, content, found, err := readRepositoryPRTemplateFile(directoryPath, directory, entry.Name())
+		if err != nil {
+			return "", "", false, err
+		}
+		if found {
+			return foundPath, content, true, nil
+		}
+	}
+	return "", "", false, nil
+}
+
+func readRepositoryPRTemplateFile(directoryPath, directory, filename string) (string, string, bool, error) {
+	foundPath := filepath.ToSlash(filepath.Join(directory, filename))
+	path := filepath.Join(directoryPath, filename)
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("read PR template %s: %w", foundPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", false, nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", false, fmt.Errorf("read PR template %s: %w", foundPath, err)
+	}
+	if strings.TrimSpace(string(content)) == "" {
+		return "", "", false, nil
+	}
+	return foundPath, string(content), true, nil
+}
+
+func findRepositoryTemplateDirectory(rootPath, relativeDirectory string) (string, bool, error) {
+	path := rootPath
+	for _, part := range strings.Split(filepath.ToSlash(relativeDirectory), "/") {
+		path = filepath.Join(path, part)
+		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("read PR template directory %s: %w", relativeDirectory, err)
+		}
+		if !info.IsDir() {
+			return "", false, nil
+		}
+	}
+	return path, true, nil
 }
 
 func getBranchLog(base, head string) (string, error) {

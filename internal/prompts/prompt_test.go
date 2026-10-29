@@ -54,6 +54,55 @@ func TestGetPRReturnsSupportedPrompts(t *testing.T) {
 	}
 }
 
+func TestGetPRRepositoryTemplatePromptsStateFillRules(t *testing.T) {
+	tests := []struct {
+		language string
+		want     []string
+	}{
+		{
+			language: "en",
+			want: []string{
+				"Format the title line as `Title: <title>`.",
+				"Fill the repository template.",
+				"Keep the repository template's headings verbatim and in their original order.",
+				"Remove HTML comment placeholders (`<!-- ... -->`).",
+				"Leave a checkbox unchecked unless the commits clearly justify checking it.",
+				"Write the prose in the language specified by `--language` (English).",
+				"Do not translate the repository template's headings.",
+				"How to test",
+				"Do not invent issue references.",
+			},
+		},
+		{
+			language: "pt-BR",
+			want: []string{
+				"Formate a linha do título como `Titulo: <título>`.",
+				"Preencha o template do repositório.",
+				"Mantenha os títulos do template do repositório literalmente e na ordem original.",
+				"Remova os placeholders de comentários HTML (`<!-- ... -->`).",
+				"Deixe uma caixa desmarcada, a menos que os commits justifiquem claramente marcá-la.",
+				"Escreva o texto em prosa no idioma especificado por `--language` (português brasileiro).",
+				"Não traduza os títulos do template do repositório.",
+				"Como testar",
+				"Não invente referências a issues.",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.language, func(t *testing.T) {
+			prompt, ok := GetPRRepositoryTemplate(test.language)
+			if !ok {
+				t.Fatalf("GetPRRepositoryTemplate(%q) ok = false, want true", test.language)
+			}
+			assertPromptContains(t, prompt, test.want)
+		})
+	}
+	if prompt, ok := GetPRRepositoryTemplate("fr"); ok || prompt != "" {
+		t.Fatalf("GetPRRepositoryTemplate(%q) = %q, %t; want empty prompt and false", "fr", prompt, ok)
+	}
+}
+
 func TestGetPRPromptsUseBuiltInTemplate(t *testing.T) {
 	tests := []struct {
 		language                string

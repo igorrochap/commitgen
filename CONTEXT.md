@@ -12,6 +12,12 @@ _Avoid_: Selection, menu, confirmation
 A run in which no human is present to perform a **Review**: the generated message is committed as-is and output is kept plain for a program to read. Entered explicitly with `--agent` or automatically when no terminal is available.
 _Avoid_: Non-interactive mode, headless mode, batch mode, yes mode
 
+**Built-in template**:
+The localized PR description template bundled with commitgen, used when the repository has no matching non-empty **Repository template**.
+
+**Repository template**:
+A non-empty PR description template found in the repository at one of commitgen's supported template paths.
+
 **Interactive mode**:
 A run with a human at a terminal, where every generated commit message goes through **Review**.
 _Avoid_: TTY mode, normal mode

@@ -95,10 +95,11 @@ type Options struct {
 }
 
 type promptData struct {
-	Context  string
-	Diff     string
-	Diffstat string
-	Branch   string
+	Context            string
+	Diff               string
+	Diffstat           string
+	Branch             string
+	RepositoryTemplate string
 }
 
 // Run generates a commit message and creates a commit after selection.

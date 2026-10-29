@@ -515,6 +515,242 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 	}
 }
 
+func TestRunPRUsesRepositoryTemplateInPrompt(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	templateContent := "## Summary\n<!-- explain the change -->\n\n## How to test\nDescribe verification.\n\n## Related issues\n"
+	templatePath := filepath.Join(repoDir, ".github", "pull_request_template.md")
+	if err := os.MkdirAll(filepath.Dir(templatePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(templatePath, []byte(templateContent), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prompt := captureOpenAIPRPrompt(t, PROptions{
+		Context:  "fixes issue 42",
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	})
+	assertPromptContainsAll(t, prompt, []string{
+		templateContent,
+		"Fill the repository template.",
+		"Keep the repository template's headings verbatim and in their original order.",
+		"Remove HTML comment placeholders",
+		"Leave a checkbox unchecked unless the commits clearly justify checking it.",
+		"Write the prose in the language specified by `--language` (English).",
+		"Do not translate the repository template's headings.",
+		"feat/42-pr-template",
+		"change.txt | 1 +",
+		"feat: add branch context",
+		"fixes issue 42",
+	})
+}
+
+func writePRTemplate(t *testing.T, repository, relativePath, content string) {
+	t.Helper()
+	path := filepath.Join(repository, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func agentPRTestOptions() PROptions {
+	return PROptions{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	}
+}
+
+func TestRunPRFindsEachRepositoryTemplatePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "GitHub", path: ".github/PULL_REQUEST_TEMPLATE.md"},
+		{name: "repository root", path: "pull_request_template.md"},
+		{name: "docs", path: "docs/pull_request_template.md"},
+		{name: "GitLab default, case-insensitive", path: ".gitlab/merge_request_templates/default.md"},
+		{name: "Azure DevOps", path: ".azuredevops/pull_request_template.md"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoDir := makePRLongCommitRepository(t)
+			t.Chdir(repoDir)
+			marker := "repository template marker: " + test.name
+			writePRTemplate(t, repoDir, test.path, marker)
+
+			prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+			if !strings.Contains(prompt, marker) {
+				t.Fatalf("prompt does not contain template from %q: %q", test.path, prompt)
+			}
+		})
+	}
+}
+
+func TestRunPRUsesFirstRepositoryTemplateInLookupOrder(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, "docs/pull_request_template.md", "later template marker")
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "earlier template marker")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "earlier template marker") {
+		t.Fatal("prompt does not contain the template from the earlier lookup path")
+	}
+	if strings.Contains(prompt, "later template marker") {
+		t.Fatal("prompt contains a template from a later lookup path")
+	}
+}
+
+func TestRunPRUsesBuiltInTemplateWithoutRepositoryDefault(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		content    string
+		createFile bool
+	}{
+		{name: "no template"},
+		{name: "GitHub multi-template directory", path: ".github/PULL_REQUEST_TEMPLATE/feature.md", content: "GitHub multi-template marker", createFile: true},
+		{name: "GitLab directory without default", path: ".gitlab/merge_request_templates/Feature.md", content: "GitLab multi-template marker", createFile: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoDir := makePRLongCommitRepository(t)
+			t.Chdir(repoDir)
+			if test.createFile {
+				writePRTemplate(t, repoDir, test.path, test.content)
+			}
+
+			prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+			if !strings.Contains(prompt, "## Motivation / Context") {
+				t.Fatal("prompt does not contain the built-in template")
+			}
+			if strings.Contains(prompt, "multi-template marker") {
+				t.Fatal("prompt contains a template from a multi-template directory")
+			}
+		})
+	}
+}
+
+func TestRunPRSkipsEmptyRepositoryTemplate(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", " \n\t ")
+	writePRTemplate(t, repoDir, "pull_request_template.md", "root template after empty GitHub template")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "root template after empty GitHub template") {
+		t.Fatal("prompt does not contain the first non-empty repository template")
+	}
+}
+
+func TestRunPRFindsRepositoryTemplateFromSubdirectory(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "root template from subdirectory")
+	subdirectory := filepath.Join(repoDir, "nested", "working")
+	if err := os.MkdirAll(subdirectory, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	t.Chdir(subdirectory)
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "root template from subdirectory") {
+		t.Fatal("prompt does not contain the repository-root template")
+	}
+}
+
+func TestRunPRReturnsErrorForUnreadableRepositoryTemplate(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	templatePath := filepath.Join(repoDir, ".github", "pull_request_template.md")
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "unreadable template")
+	writePRTemplate(t, repoDir, "pull_request_template.md", "later readable template")
+	if err := os.Chmod(templatePath, 0); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	err := RunPR(agentPRTestOptions())
+	if err == nil || !strings.Contains(err.Error(), ".github/pull_request_template.md") {
+		t.Fatalf("RunPR() error = %v, want error naming unreadable template path", err)
+	}
+}
+
+func TestRunPRSkipsDirectoryAndBrokenTemplateSymlinks(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		brokenLink bool
+	}{
+		{name: "symlink to directory"},
+		{name: "broken symlink", brokenLink: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertPRTemplateSymlinkIsSkipped(t, test.brokenLink)
+		})
+	}
+}
+
+func assertPRTemplateSymlinkIsSkipped(t *testing.T, brokenLink bool) {
+	t.Helper()
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	createPRTemplateSymlink(t, repoDir, brokenLink)
+	writePRTemplate(t, repoDir, "pull_request_template.md", "later template after unusable symlink")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "later template after unusable symlink") {
+		t.Fatal("prompt does not contain the later readable template")
+	}
+}
+
+func createPRTemplateSymlink(t *testing.T, repoDir string, brokenLink bool) {
+	t.Helper()
+	githubDir := filepath.Join(repoDir, ".github")
+	if err := os.MkdirAll(githubDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	targetName := "missing-template"
+	if !brokenLink {
+		targetName = "template-directory"
+		if err := os.Mkdir(filepath.Join(repoDir, targetName), 0o755); err != nil {
+			t.Fatalf("Mkdir() error = %v", err)
+		}
+	}
+	target := filepath.Join(repoDir, targetName)
+	link := filepath.Join(githubDir, "pull_request_template.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+}
+
+func TestRunPRSkipsTemplatePathsWithNonDirectoryParents(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	for _, parent := range []string{".github", "docs", ".gitlab", ".azuredevops"} {
+		if err := os.WriteFile(filepath.Join(repoDir, parent), []byte("not a directory\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", parent, err)
+		}
+	}
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "## Motivation / Context") {
+		t.Fatal("prompt does not contain the built-in template")
+	}
+}
+
 func TestRunPRIncludesBranchAndDiffstatInPrompt(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
@@ -893,6 +1129,77 @@ func TestRunPRAgentSkipsLoading(t *testing.T) {
 	}
 }
 
+func TestRunPRInteractivePrintsTemplateNoticeOnlyToStderr(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "repository template")
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	withProviderLoading(t, func(<-chan struct{}) func() { return func() {} })
+
+	options := agentPRTestOptions()
+	options.Agent = false
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(options); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "Using PR template: .github/pull_request_template.md\n" {
+		t.Fatalf("stderr = %q, want one repository-template notice", stderr)
+	}
+}
+
+func TestRunPRInteractivePrintsBuiltInTemplateNoticeOnlyToStderr(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	withProviderLoading(t, func(<-chan struct{}) func() { return func() {} })
+
+	options := agentPRTestOptions()
+	options.Agent = false
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(options); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "Using built-in PR template\n" {
+		t.Fatalf("stderr = %q, want one built-in-template notice", stderr)
+	}
+}
+
+func TestRunPRAgentPrintsNoTemplateNotice(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "repository template")
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(agentPRTestOptions()); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want no Agent mode template notice", stderr)
+	}
+}
+
 func TestRunAgentReturnsNoStagedChangesError(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
@@ -931,6 +1238,54 @@ func captureStdout(t *testing.T, run func()) string {
 		t.Fatalf("Close() error = %v", err)
 	}
 	return string(output)
+}
+
+func captureStandardStreams(t *testing.T, run func()) (string, string) {
+	t.Helper()
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdout Pipe() error = %v", err)
+	}
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr Pipe() error = %v", err)
+	}
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	os.Stdout = stdoutWriter
+	os.Stderr = stderrWriter
+	defer func() {
+		os.Stdout = originalStdout
+		os.Stderr = originalStderr
+	}()
+	defer func() {
+		if err := stdoutReader.Close(); err != nil {
+			t.Errorf("stdout reader Close() error = %v", err)
+		}
+	}()
+	defer func() {
+		if err := stderrReader.Close(); err != nil {
+			t.Errorf("stderr reader Close() error = %v", err)
+		}
+	}()
+	run()
+	if err := stdoutWriter.Close(); err != nil {
+		t.Fatalf("stdout Close() error = %v", err)
+	}
+	if err := stderrWriter.Close(); err != nil {
+		t.Fatalf("stderr Close() error = %v", err)
+	}
+	os.Stdout = originalStdout
+	os.Stderr = originalStderr
+	stdout, err := io.ReadAll(stdoutReader)
+	if err != nil {
+		t.Fatalf("stdout ReadAll() error = %v", err)
+	}
+	stderr, err := io.ReadAll(stderrReader)
+	if err != nil {
+		t.Fatalf("stderr ReadAll() error = %v", err)
+	}
+	return string(stdout), string(stderr)
 }
 
 func runPRQuietly(t *testing.T, opts PROptions) {
