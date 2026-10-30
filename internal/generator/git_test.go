@@ -96,6 +96,31 @@ func TestBranchHelpers(t *testing.T) {
 	}
 }
 
+func TestBranchLogStripsSquashMergePullRequestSuffix(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base subject")
+	runGit(t, repoDir, "checkout", "-b", "feature")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feat: add templates (#40)")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "fix: handle (#12) in the middle\n\nCloses #35 (#7)")
+	t.Chdir(repoDir)
+
+	log, err := getBranchLog("main", "feature")
+	if err != nil {
+		t.Fatalf("getBranchLog() error = %v", err)
+	}
+	if strings.Contains(log, "#40") {
+		t.Errorf("getBranchLog() = %q, want subject suffix (#40) removed", log)
+	}
+	for _, want := range []string{"feat: add templates", "fix: handle (#12) in the middle", "Closes #35 (#7)"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("getBranchLog() = %q, want it to contain %q", log, want)
+		}
+	}
+}
+
 func TestDefaultBaseReturnsErrorWithoutCandidate(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "feature")

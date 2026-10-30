@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -13,6 +14,13 @@ import (
 )
 
 const prDiffstatFileLimit = 100
+
+// commitRecordSeparator marks the start of each commit in the branch log.
+const commitRecordSeparator = "\x1e"
+
+// squashMergeSuffix matches the pull request number that GitHub appends to
+// squash-merged commit subjects, such as "feat: add x (#40)".
+var squashMergeSuffix = regexp.MustCompile(`\s*\(#\d+\)$`)
 
 // PROptions configures pull request description generation.
 type PROptions struct {
@@ -204,12 +212,29 @@ func findRepositoryTemplateDirectory(rootPath, relativeDirectory string) (string
 
 func getBranchLog(base, head string) (string, error) {
 	ref := base + ".." + head
-	cmd := exec.Command("git", "log", ref, "--no-merges", "--format=%s%n%b")
+	cmd := exec.Command("git", "log", ref, "--no-merges", "--format=%x1e%s%n%b")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git log %s: %w", ref, err)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return stripSquashMergeSuffixes(string(out)), nil
+}
+
+// stripSquashMergeSuffixes removes squash-merge pull request numbers from
+// commit subjects so the model does not mistake them for issue references.
+func stripSquashMergeSuffixes(log string) string {
+	records := strings.Split(log, commitRecordSeparator)
+	commits := make([]string, 0, len(records))
+	for _, record := range records {
+		record = strings.TrimSpace(record)
+		if record == "" {
+			continue
+		}
+		subject, body, _ := strings.Cut(record, "\n")
+		subject = squashMergeSuffix.ReplaceAllString(subject, "")
+		commits = append(commits, strings.TrimSpace(subject+"\n"+body))
+	}
+	return strings.Join(commits, "\n\n")
 }
 
 func getBranchDiffstat(base, head string) (string, error) {
