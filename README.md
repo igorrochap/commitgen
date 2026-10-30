@@ -160,6 +160,25 @@ Generate a Pull Request title and description with additional context:
 commitgen pr --context "closes the issue #15 on github"
 ```
 
+`commitgen pr` prints a Conventional Commits title (`Title:` in English or `Titulo:` in Brazilian Portuguese) followed by the description body on stdout. The built-in description includes:
+
+- **Summary** — 1 to 3 sentences describing the PR
+- **Motivation / Context** — why the change is necessary
+- **Changes** — themed bullets with bold labels
+- **How to test** — verification steps grounded in commit messages and `--context`, or a brief high-level approach when no concrete evidence is available
+- **Breaking changes / Migration notes** — included only when relevant
+- **Related issues** — included only when the input contains a real issue reference
+
+If the repository contains a PR template, `commitgen pr` fills the first non-empty match below. Paths are relative to the repository root, and filename matching is case-insensitive:
+
+1. `.github/pull_request_template.md`
+2. `pull_request_template.md`
+3. `docs/pull_request_template.md`
+4. `.gitlab/merge_request_templates/Default.md`
+5. `.azuredevops/pull_request_template.md`
+
+Multi-template directories without a matching default file are ignored. If no supported non-empty template is found, commitgen uses its built-in description. In Interactive mode, commitgen prints `Using PR template: <relative path>` or `Using built-in PR template` to stderr before generation. Agent mode prints no template notice. The generated title and description stay on stdout.
+
 ### Using commitgen from AI agents
 
 commitgen enters Agent mode automatically when stdin or stdout is not a terminal. A shell pipeline such as `commitgen | tee log.txt` has non-terminal stdout, so a human running it also gets a commit without Review.

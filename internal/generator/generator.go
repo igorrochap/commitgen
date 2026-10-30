@@ -95,8 +95,11 @@ type Options struct {
 }
 
 type promptData struct {
-	Context string
-	Diff    string
+	Context            string
+	Diff               string
+	Diffstat           string
+	Branch             string
+	RepositoryTemplate string
 }
 
 // Run generates a commit message and creates a commit after selection.
@@ -224,8 +227,8 @@ func truncateDiff(diff, model, promptTemplate string) string {
 	}
 	// conservative: 3 chars/token, reserve space for prompt template
 	maxChars := contextLen*3 - len(promptTemplate)
-	if maxChars < 1000 {
-		maxChars = 1000
+	if maxChars < 0 {
+		maxChars = 0
 	}
 	if len(diff) <= maxChars {
 		return diff
@@ -235,16 +238,22 @@ func truncateDiff(diff, model, promptTemplate string) string {
 }
 
 func generateCommit(tmpl *template.Template, diff string, provider providerOptions, context string) (string, error) {
+	return generatePrompt(tmpl, promptData{Context: context, Diff: diff}, provider)
+}
+
+func generatePrompt(tmpl *template.Template, data promptData, provider providerOptions) (string, error) {
 	var templateBuf bytes.Buffer
-	if err := tmpl.Execute(&templateBuf, promptData{Context: context}); err != nil {
+	templateData := data
+	templateData.Diff = ""
+	if err := tmpl.Execute(&templateBuf, templateData); err != nil {
 		return "", err
 	}
 	if provider.Provider == "ollama" {
-		diff = truncateDiff(diff, provider.Model, templateBuf.String())
+		data.Diff = truncateDiff(data.Diff, provider.Model, templateBuf.String())
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, promptData{Context: context, Diff: diff}); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", err
 	}
 

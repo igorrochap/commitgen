@@ -515,6 +515,578 @@ func TestRunPRGeneratesDescriptionFromBranchCommits(t *testing.T) {
 	}
 }
 
+func TestRunPRUsesRepositoryTemplateInPrompt(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	templateContent := "## Summary\n<!-- explain the change -->\n\n## How to test\nDescribe verification.\n\n## Related issues\n"
+	templatePath := filepath.Join(repoDir, ".github", "pull_request_template.md")
+	if err := os.MkdirAll(filepath.Dir(templatePath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(templatePath, []byte(templateContent), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prompt := captureOpenAIPRPrompt(t, PROptions{
+		Context:  "fixes issue 42",
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	})
+	assertPromptContainsAll(t, prompt, []string{
+		templateContent,
+		"Fill the repository template.",
+		"Keep the repository template's headings verbatim and in their original order.",
+		"Remove HTML comment placeholders",
+		"Leave a checkbox unchecked unless the commits clearly justify checking it.",
+		"Write the prose in the language specified by `--language` (English).",
+		"Do not translate the repository template's headings.",
+		"feat/42-pr-template",
+		"change.txt | 1 +",
+		"feat: add branch context",
+		"fixes issue 42",
+	})
+}
+
+func writePRTemplate(t *testing.T, repository, relativePath, content string) {
+	t.Helper()
+	path := filepath.Join(repository, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func agentPRTestOptions() PROptions {
+	return PROptions{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	}
+}
+
+func TestRunPRFindsEachRepositoryTemplatePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "GitHub", path: ".github/PULL_REQUEST_TEMPLATE.md"},
+		{name: "repository root", path: "pull_request_template.md"},
+		{name: "docs", path: "docs/pull_request_template.md"},
+		{name: "GitLab default, case-insensitive", path: ".gitlab/merge_request_templates/default.md"},
+		{name: "Azure DevOps", path: ".azuredevops/pull_request_template.md"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoDir := makePRLongCommitRepository(t)
+			t.Chdir(repoDir)
+			marker := "repository template marker: " + test.name
+			writePRTemplate(t, repoDir, test.path, marker)
+
+			prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+			if !strings.Contains(prompt, marker) {
+				t.Fatalf("prompt does not contain template from %q: %q", test.path, prompt)
+			}
+		})
+	}
+}
+
+func TestRunPRUsesFirstRepositoryTemplateInLookupOrder(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, "docs/pull_request_template.md", "later template marker")
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "earlier template marker")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "earlier template marker") {
+		t.Fatal("prompt does not contain the template from the earlier lookup path")
+	}
+	if strings.Contains(prompt, "later template marker") {
+		t.Fatal("prompt contains a template from a later lookup path")
+	}
+}
+
+func TestRunPRUsesBuiltInTemplateWithoutRepositoryDefault(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		content    string
+		createFile bool
+	}{
+		{name: "no template"},
+		{name: "GitHub multi-template directory", path: ".github/PULL_REQUEST_TEMPLATE/feature.md", content: "GitHub multi-template marker", createFile: true},
+		{name: "GitLab directory without default", path: ".gitlab/merge_request_templates/Feature.md", content: "GitLab multi-template marker", createFile: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoDir := makePRLongCommitRepository(t)
+			t.Chdir(repoDir)
+			if test.createFile {
+				writePRTemplate(t, repoDir, test.path, test.content)
+			}
+
+			prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+			if !strings.Contains(prompt, "## Motivation / Context") {
+				t.Fatal("prompt does not contain the built-in template")
+			}
+			if strings.Contains(prompt, "multi-template marker") {
+				t.Fatal("prompt contains a template from a multi-template directory")
+			}
+		})
+	}
+}
+
+func TestRunPRSkipsEmptyRepositoryTemplate(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", " \n\t ")
+	writePRTemplate(t, repoDir, "pull_request_template.md", "root template after empty GitHub template")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "root template after empty GitHub template") {
+		t.Fatal("prompt does not contain the first non-empty repository template")
+	}
+}
+
+func TestRunPRFindsRepositoryTemplateFromSubdirectory(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "root template from subdirectory")
+	subdirectory := filepath.Join(repoDir, "nested", "working")
+	if err := os.MkdirAll(subdirectory, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	t.Chdir(subdirectory)
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "root template from subdirectory") {
+		t.Fatal("prompt does not contain the repository-root template")
+	}
+}
+
+func TestRunPRReturnsErrorForUnreadableRepositoryTemplate(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	templatePath := filepath.Join(repoDir, ".github", "pull_request_template.md")
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "unreadable template")
+	writePRTemplate(t, repoDir, "pull_request_template.md", "later readable template")
+	if err := os.Chmod(templatePath, 0); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	err := RunPR(agentPRTestOptions())
+	if err == nil || !strings.Contains(err.Error(), ".github/pull_request_template.md") {
+		t.Fatalf("RunPR() error = %v, want error naming unreadable template path", err)
+	}
+}
+
+func TestRunPRSkipsDirectoryAndBrokenTemplateSymlinks(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		brokenLink bool
+	}{
+		{name: "symlink to directory"},
+		{name: "broken symlink", brokenLink: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertPRTemplateSymlinkIsSkipped(t, test.brokenLink)
+		})
+	}
+}
+
+func assertPRTemplateSymlinkIsSkipped(t *testing.T, brokenLink bool) {
+	t.Helper()
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	createPRTemplateSymlink(t, repoDir, brokenLink)
+	writePRTemplate(t, repoDir, "pull_request_template.md", "later template after unusable symlink")
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "later template after unusable symlink") {
+		t.Fatal("prompt does not contain the later readable template")
+	}
+}
+
+func createPRTemplateSymlink(t *testing.T, repoDir string, brokenLink bool) {
+	t.Helper()
+	githubDir := filepath.Join(repoDir, ".github")
+	if err := os.MkdirAll(githubDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	targetName := "missing-template"
+	if !brokenLink {
+		targetName = "template-directory"
+		if err := os.Mkdir(filepath.Join(repoDir, targetName), 0o755); err != nil {
+			t.Fatalf("Mkdir() error = %v", err)
+		}
+	}
+	target := filepath.Join(repoDir, targetName)
+	link := filepath.Join(githubDir, "pull_request_template.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+}
+
+func TestRunPRSkipsTemplatePathsWithNonDirectoryParents(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	for _, parent := range []string{".github", "docs", ".gitlab", ".azuredevops"} {
+		if err := os.WriteFile(filepath.Join(repoDir, parent), []byte("not a directory\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", parent, err)
+		}
+	}
+
+	prompt := captureOpenAIPRPrompt(t, agentPRTestOptions())
+	if !strings.Contains(prompt, "## Motivation / Context") {
+		t.Fatal("prompt does not contain the built-in template")
+	}
+}
+
+func TestRunPRIncludesBranchAndDiffstatInPrompt(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feat/42-pr-template")
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "generator"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "internal", "generator", "pr.go"), []byte("package generator\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "feat: add PR input")
+	runGit(t, repoDir, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repoDir, "base-only.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "base-only.txt")
+	runGit(t, repoDir, "commit", "-m", "docs: update base")
+	t.Chdir(repoDir)
+
+	var gotPrompt string
+	withProviderHTTPClient(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		gotPrompt = body.Input
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: describe PR"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+
+	if err := RunPR(PROptions{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	}); err != nil {
+		t.Fatalf("RunPR() error = %v", err)
+	}
+
+	wantDiffstat := runGit(t, repoDir, "diff", "--stat", "--stat-count=100", "main...feat/42-pr-template")
+	stat := promptSection(t, gotPrompt, "## Diffstat", "## Commit log")
+	if stat != wantDiffstat {
+		t.Fatalf("prompt diffstat = %q, want git three-dot diffstat %q", stat, wantDiffstat)
+	}
+	if !strings.Contains(stat, "internal/generator/pr.go | 1 +") || strings.Contains(stat, "base-only.txt") {
+		t.Fatalf("prompt diffstat = %q, want only files from the head side of the merge base", stat)
+	}
+	if !strings.Contains(gotPrompt, "feat/42-pr-template") {
+		t.Fatalf("prompt = %q, want raw head branch name", gotPrompt)
+	}
+}
+
+func TestRunPRCapsDiffstatAt100FilesAndKeepsSummary(t *testing.T) {
+	for _, fileCount := range []int{100, 105} {
+		t.Run(strconv.Itoa(fileCount), func(t *testing.T) {
+			assertRunPRDiffstatLimit(t, fileCount)
+		})
+	}
+}
+
+func assertRunPRDiffstatLimit(t *testing.T, fileCount int) {
+	t.Helper()
+
+	repoDir := makePRDiffstatRepository(t, fileCount)
+	t.Chdir(repoDir)
+	prompt := captureOpenAIPRPrompt(t, PROptions{
+		Language: "en",
+		Model:    "gpt-5.5",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		Base:     "main",
+		Head:     "feat/diffstat-cap",
+		Agent:    true,
+	})
+	assertDiffstatFileLimit(t, promptSection(t, prompt, "## Diffstat", "## Commit log"), fileCount)
+}
+
+func makePRDiffstatRepository(t *testing.T, fileCount int) string {
+	t.Helper()
+
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feat/diffstat-cap")
+	for fileNumber := 1; fileNumber <= fileCount; fileNumber++ {
+		filePath := filepath.Join(repoDir, "file-"+strconv.Itoa(fileNumber)+".txt")
+		if err := os.WriteFile(filePath, []byte("content\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "feat: add files")
+	return repoDir
+}
+
+func captureOpenAIPRPrompt(t *testing.T, opts PROptions) string {
+	t.Helper()
+
+	var prompt string
+	withProviderHTTPClient(t, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		prompt = body.Input
+		return jsonResponse(http.StatusOK, `{"output_text":"feat: describe files"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	runPRQuietly(t, opts)
+	return prompt
+}
+
+func assertDiffstatFileLimit(t *testing.T, stat string, summaryFileCount int) {
+	t.Helper()
+
+	fileRows := 0
+	for _, line := range strings.Split(stat, "\n") {
+		if strings.Contains(line, " | ") {
+			fileRows++
+		}
+	}
+	if fileRows != 100 {
+		t.Fatalf("diffstat file rows = %d, want 100", fileRows)
+	}
+	if !strings.Contains(stat, strconv.Itoa(summaryFileCount)+" files changed,") {
+		t.Fatalf("diffstat = %q, want summary for %d files", stat, summaryFileCount)
+	}
+	if summaryFileCount == 100 && strings.Contains(stat, "\n ...") {
+		t.Fatalf("diffstat = %q, has truncation marker for exactly 100 files", stat)
+	}
+}
+
+func TestRunPRWithOllamaTruncatesOnlyCommitLog(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+
+	var gotPrompt string
+	wantDiffstat := runGit(t, repoDir, "diff", "--stat", "--stat-count=100", "main...feat/42-pr-template")
+	staticPrompt := renderPRTemplate(t, "feat/42-pr-template", wantDiffstat, "")
+	contextLen := (len(staticPrompt) + 500 + 2) / 3
+	withDefaultHTTPTransport(t, ollamaPRPromptTransport(&gotPrompt, contextLen))
+	runPRQuietly(t, PROptions{
+		Language: "en",
+		Model:    "small-test-model",
+		Provider: "ollama",
+		Base:     "main",
+		Head:     "feat/42-pr-template",
+		Agent:    true,
+	})
+
+	instructionText := renderPRInstructionPrefix(t, "feat/42-pr-template", wantDiffstat)
+	if !strings.HasPrefix(gotPrompt, instructionText) {
+		t.Fatal("prompt does not contain the complete PR instructions before the commit log")
+	}
+	assertPromptContainsAll(t, gotPrompt, []string{
+		"Use an issue reference in the head branch name here when it contains one.",
+		"Give no meaning to `main`, `master`, `HEAD`, or a commit SHA as a branch name.",
+		"Write in English.",
+		"feat/42-pr-template",
+		"change.txt | 1 +",
+		strings.Repeat("x", 100),
+	})
+	if strings.Contains(gotPrompt, "LOG_END_SENTINEL") {
+		t.Fatal("prompt contains the end of the commit log after truncation")
+	}
+}
+
+func makePRLongCommitRepository(t *testing.T) string {
+	t.Helper()
+
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feat/42-pr-template")
+	if err := os.WriteFile(filepath.Join(repoDir, "change.txt"), []byte("change\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	runGit(t, repoDir, "add", "change.txt")
+	runGit(t, repoDir, "commit", "-m", "feat: add branch context", "-m", strings.Repeat("x", 5000)+"LOG_END_SENTINEL")
+	return repoDir
+}
+
+func TestRunPRWithOllamaBudgetsForLargeDiffstat(t *testing.T) {
+	const branch = "feat/large-diffstat"
+	repoDir := makePRLargeDiffstatRepository(t, branch, 100)
+	t.Chdir(repoDir)
+	wantDiffstat := runGit(t, repoDir, "diff", "--stat", "--stat-count=100", "main..."+branch)
+	staticPrompt := renderPRTemplate(t, branch, wantDiffstat, "")
+	contextLen := (len(staticPrompt) + 200 + 2) / 3
+	if available := contextLen*3 - len(staticPrompt); available >= 1000 {
+		t.Fatalf("available commit-log budget = %d, want less than 1000 chars", available)
+	}
+
+	var gotPrompt string
+	withDefaultHTTPTransport(t, ollamaPRPromptTransport(&gotPrompt, contextLen))
+	runPRQuietly(t, PROptions{
+		Language: "en",
+		Model:    "small-test-model",
+		Provider: "ollama",
+		Base:     "main",
+		Head:     branch,
+		Agent:    true,
+	})
+
+	if len(gotPrompt) > contextLen*3 {
+		t.Fatalf("prompt length = %d, exceeds context budget of %d chars", len(gotPrompt), contextLen*3)
+	}
+	instructionText := strings.Split(staticPrompt, "## Commit log")[0]
+	if !strings.HasPrefix(gotPrompt, instructionText) {
+		t.Fatal("prompt does not contain the complete instructions before the commit log")
+	}
+	assertPromptContainsAll(t, gotPrompt, []string{
+		"100 files changed,",
+		branch,
+		strings.Repeat("x", 100),
+	})
+	if strings.Contains(gotPrompt, "LOG_END_SENTINEL") {
+		t.Fatal("prompt contains the end of the commit log after truncation")
+	}
+}
+
+func makePRLargeDiffstatRepository(t *testing.T, branch string, fileCount int) string {
+	t.Helper()
+
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", branch)
+	for fileNumber := 1; fileNumber <= fileCount; fileNumber++ {
+		filePath := filepath.Join(repoDir, "file-"+strconv.Itoa(fileNumber)+".txt")
+		if err := os.WriteFile(filePath, []byte("content\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+	runGit(t, repoDir, "add", ".")
+	runGit(t, repoDir, "commit", "-m", "feat: add files", "-m", strings.Repeat("x", 5000)+"LOG_END_SENTINEL")
+	return repoDir
+}
+
+func ollamaPRPromptTransport(prompt *string, contextLen int) roundTripFunc {
+	return func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/api/show" {
+			body := `{"model_info":{"context_length":` + strconv.Itoa(contextLen) + `}}`
+			return jsonResponse(http.StatusOK, body), nil
+		}
+		if request.URL.Path != "/api/generate" {
+			return nil, errors.New("unexpected Ollama request path: " + request.URL.Path)
+		}
+		var body ollamaRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			return nil, err
+		}
+		*prompt = body.Prompt
+		return jsonResponse(http.StatusOK, "{\"response\":\"Title\",\"done\":true}\n"), nil
+	}
+}
+
+func renderPRInstructionPrefix(t *testing.T, branch, diffstat string) string {
+	t.Helper()
+	return strings.Split(renderPRTemplate(t, branch, diffstat, ""), "## Commit log")[0]
+}
+
+func renderPRTemplate(t *testing.T, branch, diffstat, diff string) string {
+	t.Helper()
+
+	prPrompt, ok := prompts.GetPR("en")
+	if !ok {
+		t.Fatal("GetPR(en) ok = false, want true")
+	}
+	prTemplate, err := template.New("pr").Parse(prPrompt)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	var expectedPrompt bytes.Buffer
+	if err := prTemplate.Execute(&expectedPrompt, promptData{Branch: branch, Diffstat: diffstat, Diff: diff}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	return expectedPrompt.String()
+}
+
+func assertPromptContainsAll(t *testing.T, prompt string, contents []string) {
+	t.Helper()
+
+	for _, content := range contents {
+		if !strings.Contains(prompt, content) {
+			t.Errorf("prompt does not contain %q", content)
+		}
+	}
+}
+
+func TestRunPRReturnsGitDiffstatError(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit(t, repoDir, "init", "-b", "main")
+	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	runGit(t, repoDir, "config", "user.name", "Test User")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "base commit")
+	runGit(t, repoDir, "checkout", "-b", "feature")
+	runGit(t, repoDir, "commit", "--allow-empty", "-m", "feat: branch change")
+	t.Chdir(repoDir)
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("LookPath(git) error = %v", err)
+	}
+	binDir := t.TempDir()
+	gitShim := "#!/bin/sh\nif [ \"$1\" = diff ] && [ \"$2\" = --stat ]; then exit 1; fi\nexec \"$REAL_GIT\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(gitShim), 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("REAL_GIT", gitPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err = RunPR(PROptions{Language: "en", Base: "main", Head: "feature"})
+	wantCommand := "git diff --stat --stat-count=100 main...feature"
+	if err == nil || !strings.Contains(err.Error(), wantCommand) {
+		t.Fatalf("RunPR() error = %v, want command and range %q", err, wantCommand)
+	}
+}
+
 func TestRunPRAgentSkipsLoading(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
@@ -557,6 +1129,77 @@ func TestRunPRAgentSkipsLoading(t *testing.T) {
 	}
 }
 
+func TestRunPRInteractivePrintsTemplateNoticeOnlyToStderr(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "repository template")
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	withProviderLoading(t, func(<-chan struct{}) func() { return func() {} })
+
+	options := agentPRTestOptions()
+	options.Agent = false
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(options); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "Using PR template: .github/pull_request_template.md\n" {
+		t.Fatalf("stderr = %q, want one repository-template notice", stderr)
+	}
+}
+
+func TestRunPRInteractivePrintsBuiltInTemplateNoticeOnlyToStderr(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+	withProviderLoading(t, func(<-chan struct{}) func() { return func() {} })
+
+	options := agentPRTestOptions()
+	options.Agent = false
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(options); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "Using built-in PR template\n" {
+		t.Fatalf("stderr = %q, want one built-in-template notice", stderr)
+	}
+}
+
+func TestRunPRAgentPrintsNoTemplateNotice(t *testing.T) {
+	repoDir := makePRLongCommitRepository(t)
+	t.Chdir(repoDir)
+	writePRTemplate(t, repoDir, ".github/pull_request_template.md", "repository template")
+	withProviderHTTPClient(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"output_text":"Generated pull request"}`), nil
+	}))
+	withProviderEndpoint(t, "openai", "https://example.test/v1/responses")
+
+	stdout, stderr := captureStandardStreams(t, func() {
+		if err := RunPR(agentPRTestOptions()); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+	if stdout != "Generated pull request\n" {
+		t.Fatalf("stdout = %q, want generated description only", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want no Agent mode template notice", stderr)
+	}
+}
+
 func TestRunAgentReturnsNoStagedChangesError(t *testing.T) {
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
@@ -595,6 +1238,79 @@ func captureStdout(t *testing.T, run func()) string {
 		t.Fatalf("Close() error = %v", err)
 	}
 	return string(output)
+}
+
+func captureStandardStreams(t *testing.T, run func()) (string, string) {
+	t.Helper()
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stdout Pipe() error = %v", err)
+	}
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr Pipe() error = %v", err)
+	}
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	os.Stdout = stdoutWriter
+	os.Stderr = stderrWriter
+	defer func() {
+		os.Stdout = originalStdout
+		os.Stderr = originalStderr
+	}()
+	defer func() {
+		if err := stdoutReader.Close(); err != nil {
+			t.Errorf("stdout reader Close() error = %v", err)
+		}
+	}()
+	defer func() {
+		if err := stderrReader.Close(); err != nil {
+			t.Errorf("stderr reader Close() error = %v", err)
+		}
+	}()
+	run()
+	if err := stdoutWriter.Close(); err != nil {
+		t.Fatalf("stdout Close() error = %v", err)
+	}
+	if err := stderrWriter.Close(); err != nil {
+		t.Fatalf("stderr Close() error = %v", err)
+	}
+	os.Stdout = originalStdout
+	os.Stderr = originalStderr
+	stdout, err := io.ReadAll(stdoutReader)
+	if err != nil {
+		t.Fatalf("stdout ReadAll() error = %v", err)
+	}
+	stderr, err := io.ReadAll(stderrReader)
+	if err != nil {
+		t.Fatalf("stderr ReadAll() error = %v", err)
+	}
+	return string(stdout), string(stderr)
+}
+
+func runPRQuietly(t *testing.T, opts PROptions) {
+	t.Helper()
+
+	_ = captureStdout(t, func() {
+		if err := RunPR(opts); err != nil {
+			t.Fatalf("RunPR() error = %v", err)
+		}
+	})
+}
+
+func promptSection(t *testing.T, prompt, heading, nextHeading string) string {
+	t.Helper()
+
+	start := strings.Index(prompt, heading+"\n\n")
+	if start < 0 {
+		t.Fatalf("prompt is missing section %q", heading)
+	}
+	start += len(heading) + 2
+	end := strings.Index(prompt[start:], "\n\n"+nextHeading)
+	if end < 0 {
+		t.Fatalf("prompt is missing section %q after %q", nextHeading, heading)
+	}
+	return strings.TrimSpace(prompt[start : start+end])
 }
 
 func TestGenerateTextRejectsUnknownProvider(t *testing.T) {
@@ -683,12 +1399,14 @@ func TestModelContextLength(t *testing.T) {
 
 func TestTruncateDiff(t *testing.T) {
 	tests := []struct {
-		name       string
-		contextLen int
-		wantLength int
+		name           string
+		contextLen     int
+		promptTemplate string
+		wantLength     int
 	}{
-		{name: "truncate to minimum", contextLen: 100, wantLength: 1000},
-		{name: "keep diff within context", contextLen: 1000, wantLength: 1500},
+		{name: "use the remaining context budget", contextLen: 100, promptTemplate: "prompt", wantLength: 294},
+		{name: "truncate when no context remains", contextLen: 100, promptTemplate: strings.Repeat("p", 400), wantLength: 0},
+		{name: "keep diff within context", contextLen: 1000, promptTemplate: "prompt", wantLength: 1500},
 	}
 
 	for _, test := range tests {
@@ -698,7 +1416,7 @@ func TestTruncateDiff(t *testing.T) {
 				return jsonResponse(http.StatusOK, body), nil
 			}))
 
-			got := truncateDiff(strings.Repeat("x", 1500), "test-model", "prompt")
+			got := truncateDiff(strings.Repeat("x", 1500), "test-model", test.promptTemplate)
 			if len(got) != test.wantLength {
 				t.Fatalf("truncateDiff() length = %d, want %d", len(got), test.wantLength)
 			}
