@@ -2,6 +2,41 @@
 
 <!-- version list -->
 
+## v1.10.0 (2026-10-30)
+
+### Bug Fixes
+
+- **generator**: Strip squash-merge PR suffixes from branch log
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+### Documentation
+
+- **prompts**: Refine PR generation instructions and tests
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+### Features
+
+- **generator**: Add repository PR templates and diffstat support
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+- **generator**: Add support for repository PR templates
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+- **generator**: Include branch and diffstat in PR prompt
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+### Refactoring
+
+- **prompts**: Update PR description templates and tests
+  ([#41](https://github.com/igorrochap/commitgen/pull/41),
+  [`f26a235`](https://github.com/igorrochap/commitgen/commit/f26a235cb62f9483e2a37f5340d2e563c60a4e49))
+
+
 ## v1.9.0 (2026-10-28)
 
 ### Bug Fixes
