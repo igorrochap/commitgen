@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v1.11.0 (2026-11-02)
+
+### Features
+
+- **generator**: Add automatic retries and Retry-After support for hosted providers
+  ([#46](https://github.com/igorrochap/commitgen/pull/46),
+  [`898b831`](https://github.com/igorrochap/commitgen/commit/898b8311bc297907cef0dd06a75c6cc7b1d7cb76))
+
+- **generator**: Add automatic retries for hosted providers
+  ([#46](https://github.com/igorrochap/commitgen/pull/46),
+  [`898b831`](https://github.com/igorrochap/commitgen/commit/898b8311bc297907cef0dd06a75c6cc7b1d7cb76))
+
+- **generator**: Honor Retry-After header in provider requests
+  ([#46](https://github.com/igorrochap/commitgen/pull/46),
+  [`898b831`](https://github.com/igorrochap/commitgen/commit/898b8311bc297907cef0dd06a75c6cc7b1d7cb76))
+
+
 ## v1.10.0 (2026-10-30)
 
 ### Bug Fixes
