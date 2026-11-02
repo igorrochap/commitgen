@@ -197,6 +197,12 @@ commitgen push --agent
 
 Agent mode commits the first generated message without Review. It skips the loading spinner and update notice, and keeps commitgen's output plain for a program to read. On success, stdout contains `Commit <short-hash> created`, an empty line, and the full commit message. If the generated message needs correction, use `git commit --amend`.
 
+### Hosted provider retries
+
+The `openai`, `anthropic`, and `gemini` providers retry **Transient failures**: HTTP `429`, `500`, `502`, `503`, and `504` responses, plus temporary transport errors such as timeouts, connection resets, refused connections, and unexpected ends of a response. Other HTTP statuses, TLS certificate errors, and responses that cannot be parsed are returned without a retry. Ollama requests are not retried.
+
+Hosted requests make up to four attempts, including the first request. Before each retry, commitgen waits for a random delay with exponential backoff: the delay is between 0 and 1 second before the first retry, then up to 2 and 4 seconds, with a 30-second maximum. Every scheduled retry prints one plain-text notice to stderr in both Interactive and Agent modes. In Agent mode, stdout keeps the commit confirmation and full commit message unchanged.
+
 ## Interactive selection
 
 This section describes Interactive mode. After the message is generated, you are prompted to choose an action:

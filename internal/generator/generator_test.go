@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 
 	"github.com/igorrochap/commitgen/internal/prompts"
 	"github.com/igorrochap/commitgen/internal/selection"
@@ -431,6 +432,7 @@ func TestRunPRReturnsGitLogError(t *testing.T) {
 }
 
 func TestRunPRReturnsProviderError(t *testing.T) {
+	withRetryTiming(t, func(time.Duration) {}, func(time.Duration) time.Duration { return 0 })
 	repoDir := t.TempDir()
 	runGit(t, repoDir, "init", "-b", "main")
 	runGit(t, repoDir, "config", "user.email", "test@example.com")
@@ -1320,6 +1322,7 @@ func TestGenerateTextRejectsUnknownProvider(t *testing.T) {
 }
 
 func TestHostedProviderGenerateReturnsErrors(t *testing.T) {
+	withRetryTiming(t, func(time.Duration) {}, func(time.Duration) time.Duration { return 0 })
 	tests := []struct {
 		name      string
 		apiKey    string
@@ -1934,9 +1937,14 @@ func withProviderEndpoint(t *testing.T, provider, endpoint string) {
 func withProviderLoading(t *testing.T, start func(<-chan struct{}) func()) {
 	t.Helper()
 	original := startLoading
+	originalWithNotices := startLoadingWithNotices
 	startLoading = start
+	startLoadingWithNotices = func(done <-chan struct{}, _ <-chan string) func() {
+		return startLoading(done)
+	}
 	t.Cleanup(func() {
 		startLoading = original
+		startLoadingWithNotices = originalWithNotices
 	})
 }
 
