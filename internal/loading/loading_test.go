@@ -1,6 +1,7 @@
 package loading
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,70 @@ func TestModelView(t *testing.T) {
 	if got := m.View(); !strings.HasPrefix(got, "Generating ") {
 		t.Fatalf("View() = %q, want Generating prefix", got)
 	}
+}
+
+func TestModelUpdateRetryNoticeKeepsSpinnerRunning(t *testing.T) {
+	const notice = "gemini: 503 Service Unavailable, retrying in 1.3s (attempt 2/4)"
+	var stderr bytes.Buffer
+	m := model{spinner: spinner.New(), retryNotices: make(chan string), noticeWriter: &stderr}
+	updated, next := m.Update(retryNoticeMsg(notice))
+	updatedModel := updated.(model)
+	if next == nil {
+		t.Fatal("Update() command = nil, want next retry-notice command")
+	}
+	if got, want := stderr.String(), "\n"+notice+"\n"; got != want {
+		t.Fatalf("retry notice output = %q, want %q", got, want)
+	}
+	before := updatedModel.View()
+	if !strings.HasPrefix(before, "Generating ") {
+		t.Fatalf("View() = %q, want spinner line", before)
+	}
+	updated, _ = updatedModel.Update(updatedModel.spinner.Tick())
+	if got := updated.(model).View(); got == before {
+		t.Fatalf("spinner view after notice tick = %q, want an updated frame", got)
+	}
+}
+
+func TestModelWaitsForDoneAndRetryNoticesToClose(t *testing.T) {
+	for _, doneFirst := range []bool{true, false} {
+		t.Run(map[bool]string{true: "done first", false: "notices first"}[doneFirst], func(t *testing.T) {
+			retryNotices := make(chan string)
+			m := model{spinner: spinner.New(), done: make(chan struct{}), retryNotices: retryNotices}
+			if doneFirst {
+				m = updateModel(t, m, doneMsg{}, false)
+				close(retryNotices)
+				closedMessage := waitForRetryNotice(retryNotices)()
+				_ = updateModel(t, m, closedMessage, true)
+				return
+			}
+			close(retryNotices)
+			closedMessage := waitForRetryNotice(retryNotices)()
+			m = updateModel(t, m, closedMessage, false)
+			_ = updateModel(t, m, doneMsg{}, true)
+		})
+	}
+}
+
+func updateModel(t *testing.T, current model, message tea.Msg, wantQuit bool) model {
+	t.Helper()
+	updated, command := current.Update(message)
+	updatedModel, ok := updated.(model)
+	if !ok {
+		t.Fatalf("Update() model type = %T, want model", updated)
+	}
+	if wantQuit {
+		if command == nil {
+			t.Fatal("Update() command = nil, want quit command")
+		}
+		if _, ok := command().(tea.QuitMsg); !ok {
+			t.Fatal("Update() command message is not QuitMsg")
+		}
+		return updatedModel
+	}
+	if command != nil {
+		t.Fatalf("Update() command = %v, want nil", command)
+	}
+	return updatedModel
 }
 
 func TestStartWaitsForDone(t *testing.T) {
