@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -71,6 +72,7 @@ type hostedProvider struct {
 	client      *http.Client
 	codec       providerCodec
 	retryNotice func(string)
+	now         func() time.Time
 }
 
 type providerCodec interface {
@@ -136,6 +138,7 @@ func newHostedProvider(name string, opts providerOptions, codec providerCodec) h
 		endpoint: providerEndpoints[name],
 		client:   providerHTTPClient,
 		codec:    codec,
+		now:      time.Now,
 	}
 }
 
@@ -289,7 +292,7 @@ func (p hostedProvider) retryAfterTransportFailure(attempt int, resp *http.Respo
 	if !transient || attempt == maxHostedAttempts {
 		return true, p.transportFailure(attempt, err)
 	}
-	p.retry(attempt, description)
+	p.retry(attempt, description, "")
 	return false, nil
 }
 
@@ -300,7 +303,7 @@ func (p hostedProvider) retryAfterStatusFailure(attempt int, resp *http.Response
 	if !isTransientStatus(failure.code) || attempt == maxHostedAttempts {
 		return true, p.statusFailure(attempt, failure)
 	}
-	p.retry(attempt, failure.statusDescription())
+	p.retry(attempt, failure.statusDescription(), resp.Header.Get("Retry-After"))
 	return false, nil
 }
 
@@ -315,9 +318,8 @@ func (p hostedProvider) sendRequest(body []byte) (*http.Response, error) {
 	return p.client.Do(req)
 }
 
-func (p hostedProvider) retry(failedAttempt int, description string) {
-	delayLimit := retryDelayLimit(failedAttempt)
-	delay := retryJitter(delayLimit)
+func (p hostedProvider) retry(failedAttempt int, description, retryAfter string) {
+	delay := p.retryDelay(failedAttempt, retryAfter)
 	notice := fmt.Sprintf("%s: %s, retrying in %.1fs (attempt %d/%d)",
 		p.name, description, delay.Seconds(), failedAttempt+1, maxHostedAttempts)
 	if p.retryNotice != nil {
@@ -326,6 +328,50 @@ func (p hostedProvider) retry(failedAttempt int, description string) {
 		fmt.Fprintln(os.Stderr, notice)
 	}
 	retrySleep(delay)
+}
+
+func (p hostedProvider) retryDelay(failedAttempt int, retryAfter string) time.Duration {
+	if delay, valid := parseRetryAfter(retryAfter, p.now); valid {
+		return delay
+	}
+	return retryJitter(retryDelayLimit(failedAttempt))
+}
+
+func parseRetryAfter(value string, now func() time.Time) (time.Duration, bool) {
+	value = strings.Trim(value, " \t")
+	if value == "" {
+		return 0, false
+	}
+	delay, valid := parseRetryAfterSeconds(value)
+	if !valid {
+		retryAt, err := http.ParseTime(value)
+		if err != nil {
+			return 0, false
+		}
+		delay = retryAt.Sub(now())
+		if delay < 0 {
+			return 0, false
+		}
+	}
+	return min(delay, maxRetryDelay), true
+}
+
+func parseRetryAfterSeconds(value string) (time.Duration, bool) {
+	if strings.HasPrefix(value, "+") {
+		return 0, false
+	}
+	seconds, err := strconv.ParseUint(value, 10, 64)
+	if errors.Is(err, strconv.ErrRange) {
+		return time.Duration(1<<63 - 1), true
+	}
+	if err != nil {
+		return 0, false
+	}
+	maxDuration := time.Duration(1<<63 - 1)
+	if seconds > uint64(maxDuration/time.Second) {
+		return maxDuration, true
+	}
+	return time.Duration(seconds) * time.Second, true
 }
 
 func retryDelayLimit(retryNumber int) time.Duration {

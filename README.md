@@ -203,6 +203,8 @@ The `openai`, `anthropic`, and `gemini` providers retry **Transient failures**: 
 
 Hosted requests make up to four attempts, including the first request. Before each retry, commitgen waits for a random delay with exponential backoff: the delay is between 0 and 1 second before the first retry, then up to 2 and 4 seconds, with a 30-second maximum. Every scheduled retry prints one plain-text notice to stderr in both Interactive and Agent modes. In Agent mode, stdout keeps the commit confirmation and full commit message unchanged.
 
+When a transient HTTP response includes a valid `Retry-After` header, commitgen honors its delay, capped at 30 seconds. It accepts delay-seconds and HTTP-date values; missing or invalid values use the jittered backoff delay.
+
 ## Interactive selection
 
 This section describes Interactive mode. After the message is generated, you are prompted to choose an action:

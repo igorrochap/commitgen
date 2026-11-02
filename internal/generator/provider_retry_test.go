@@ -96,6 +96,121 @@ func TestHostedProviderRetriesTransientStatusCodes(t *testing.T) {
 	}
 }
 
+func TestHostedProviderHonorsRetryAfter(t *testing.T) {
+	now := time.Date(2026, time.October, 21, 7, 27, 50, 0, time.UTC)
+	tests := []retryAfterCase{
+		{name: "delay seconds", status: http.StatusServiceUnavailable, retryAfter: "5", includeHeader: true, wantDelay: 5 * time.Second},
+		{name: "future HTTP date", status: http.StatusTooManyRequests, retryAfter: "Wed, 21 Oct 2026 07:28:00 GMT", includeHeader: true, wantDelay: 10 * time.Second},
+		{name: "capped delay", status: http.StatusServiceUnavailable, retryAfter: "120", includeHeader: true, wantDelay: maxRetryDelay},
+		{name: "overflow delay", status: http.StatusServiceUnavailable, retryAfter: "18446744073709551616", includeHeader: true, wantDelay: maxRetryDelay},
+		{name: "zero delay", status: http.StatusServiceUnavailable, retryAfter: "0", includeHeader: true},
+		{name: "invalid delay", status: http.StatusServiceUnavailable, retryAfter: "soon", includeHeader: true, wantDelay: 250 * time.Millisecond, wantJitter: true},
+		{name: "past HTTP date", status: http.StatusServiceUnavailable, retryAfter: "Wed, 21 Oct 2026 07:27:49 GMT", includeHeader: true, wantDelay: 250 * time.Millisecond, wantJitter: true},
+		{name: "missing header", status: http.StatusServiceUnavailable, wantDelay: 250 * time.Millisecond, wantJitter: true},
+		{name: "empty header", status: http.StatusServiceUnavailable, includeHeader: true, wantDelay: 250 * time.Millisecond, wantJitter: true},
+		{name: "negative delay", status: http.StatusServiceUnavailable, retryAfter: "-5", includeHeader: true, wantDelay: 250 * time.Millisecond, wantJitter: true},
+		{name: "plus sign", status: http.StatusServiceUnavailable, retryAfter: "+5", includeHeader: true, wantDelay: 250 * time.Millisecond, wantJitter: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertHostedProviderHonorsRetryAfter(t, test, now)
+		})
+	}
+}
+
+type retryAfterCase struct {
+	name          string
+	status        int
+	retryAfter    string
+	includeHeader bool
+	wantDelay     time.Duration
+	wantJitter    bool
+}
+
+func assertHostedProviderHonorsRetryAfter(t *testing.T, test retryAfterCase, now time.Time) {
+	t.Helper()
+	var delays []time.Duration
+	jitterCalls := 0
+	withRetryTiming(t, func(delay time.Duration) {
+		delays = append(delays, delay)
+	}, func(limit time.Duration) time.Duration {
+		jitterCalls++
+		if limit != baseRetryDelay {
+			t.Errorf("jitter limit = %s, want %s", limit, baseRetryDelay)
+		}
+		return 250 * time.Millisecond
+	})
+
+	requests := 0
+	provider := newHostedProvider("openai", providerOptions{
+		Provider: "openai",
+		Model:    "test-model",
+		APIKey:   "test-key",
+	}, openAICodec{})
+	provider.endpoint = "https://example.test/v1/responses"
+	provider.now = func() time.Time { return now }
+	provider.retryNotice = func(string) {}
+	provider.client = &http.Client{Transport: retryAfterTestTransport(test, &requests)}
+
+	text, err := provider.Generate("prompt")
+	if err != nil || text != "feat: recovered" || requests != 2 {
+		t.Fatalf("Generate() = %q, %v after %d requests, want success after 2", text, err, requests)
+	}
+	if len(delays) != 1 || delays[0] != test.wantDelay {
+		t.Fatalf("retry delays = %v, want [%s]", delays, test.wantDelay)
+	}
+	wantJitterCalls := 0
+	if test.wantJitter {
+		wantJitterCalls = 1
+	}
+	if jitterCalls != wantJitterCalls {
+		t.Fatalf("jitter calls = %d, want %d", jitterCalls, wantJitterCalls)
+	}
+}
+
+func retryAfterTestTransport(test retryAfterCase, requests *int) roundTripFunc {
+	return func(*http.Request) (*http.Response, error) {
+		*requests++
+		if *requests != 1 {
+			return jsonResponse(http.StatusOK, `{"output_text":"feat: recovered"}`), nil
+		}
+		response := jsonResponse(test.status, "temporary failure")
+		if test.includeHeader {
+			response.Header.Set("Retry-After", test.retryAfter)
+		}
+		return response, nil
+	}
+}
+
+func TestHostedProviderDoesNotRetryBadRequestWithRetryAfter(t *testing.T) {
+	withRetryTiming(t, func(time.Duration) {}, func(time.Duration) time.Duration { return 0 })
+	requests := 0
+	_, _, err := generateWithTransport(t, "openai", roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		response := jsonResponse(http.StatusBadRequest, "invalid request")
+		response.Header.Set("Retry-After", "5")
+		return response, nil
+	}))
+	if err == nil || requests != 1 {
+		t.Fatalf("generateText() error = %v after %d requests, want one failed request", err, requests)
+	}
+}
+
+func TestHostedProviderRetryAfterDoesNotChangeAttemptLimit(t *testing.T) {
+	withRetryTiming(t, func(time.Duration) {}, func(time.Duration) time.Duration { return 0 })
+	requests := 0
+	_, _, err := generateWithTransport(t, "openai", roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		response := jsonResponse(http.StatusServiceUnavailable, "overloaded")
+		response.Header.Set("Retry-After", "1")
+		return response, nil
+	}))
+	if err == nil || requests != maxHostedAttempts {
+		t.Fatalf("generateText() error = %v after %d requests, want %d requests", err, requests, maxHostedAttempts)
+	}
+}
+
 func TestHostedProviderDoesNotRetryFinalResponses(t *testing.T) {
 	tests := []struct {
 		name string
