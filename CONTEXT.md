@@ -21,3 +21,7 @@ A non-empty PR description template found in the repository at one of commitgen'
 **Interactive mode**:
 A run with a human at a terminal, where every generated commit message goes through **Review**.
 _Avoid_: TTY mode, normal mode
+
+**Transient failure**:
+A hosted-provider response with a retryable HTTP status (`429`, `500`, `502`, `503`, or `504`) or a temporary transport error (timeout, connection reset, refused connection, or unexpected end of response).
+_Avoid_: Temporary failure

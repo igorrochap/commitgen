@@ -3,10 +3,19 @@ package generator
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/igorrochap/commitgen/internal/loading"
 )
@@ -20,6 +29,20 @@ var providerEndpoints = map[string]string{
 var providerHTTPClient = http.DefaultClient
 
 var startLoading = loading.Start
+var startLoadingWithNotices = loading.StartWithNotices
+
+var (
+	retrySleep  = time.Sleep
+	retryJitter = fullJitter
+)
+
+const (
+	maxHostedAttempts = 4
+	baseRetryDelay    = time.Second
+	maxRetryDelay     = 30 * time.Second
+)
+
+var transportURL = regexp.MustCompile(`https?://[^\s]+`)
 
 type providerOptions struct {
 	Provider string
@@ -42,12 +65,14 @@ type ollamaProvider struct {
 }
 
 type hostedProvider struct {
-	name     string
-	model    string
-	apiKey   string
-	endpoint string
-	client   *http.Client
-	codec    providerCodec
+	name        string
+	model       string
+	apiKey      string
+	endpoint    string
+	client      *http.Client
+	codec       providerCodec
+	retryNotice func(string)
+	now         func() time.Time
 }
 
 type providerCodec interface {
@@ -63,14 +88,23 @@ func generateText(opts providerOptions, prompt string) (string, error) {
 	}
 
 	var done chan struct{}
+	var retryNotices chan string
 	var wait func()
 	if !opts.Agent {
 		done = make(chan struct{})
-		wait = startLoading(done)
+		retryNotices = make(chan string, maxHostedAttempts-1)
+		if hosted, ok := provider.(hostedProvider); ok {
+			hosted.retryNotice = func(notice string) {
+				retryNotices <- notice
+			}
+			provider = hosted
+		}
+		wait = startLoadingWithNotices(done, retryNotices)
 	}
 	result, err := provider.Generate(prompt)
 
 	if !opts.Agent {
+		close(retryNotices)
 		close(done)
 		wait()
 	}
@@ -104,6 +138,7 @@ func newHostedProvider(name string, opts providerOptions, codec providerCodec) h
 		endpoint: providerEndpoints[name],
 		client:   providerHTTPClient,
 		codec:    codec,
+		now:      time.Now,
 	}
 }
 
@@ -162,43 +197,291 @@ func (p ollamaProvider) Generate(prompt string) (string, error) {
 }
 
 func (p hostedProvider) Generate(prompt string) (string, error) {
+	body, err := p.buildRequestBody(prompt)
+	if err != nil {
+		return "", err
+	}
+
+	for attempt := 1; attempt <= maxHostedAttempts; attempt++ {
+		resp, err := p.sendRequest(body)
+		if err != nil {
+			finished, failure := p.retryAfterTransportFailure(attempt, resp, err)
+			if finished {
+				return "", failure
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			finished, failure := p.retryAfterStatusFailure(attempt, resp)
+			if finished {
+				return "", failure
+			}
+			continue
+		}
+
+		text, finished, err := p.handleSuccessfulResponse(attempt, resp)
+		if finished {
+			return text, err
+		}
+	}
+
+	return "", fmt.Errorf("%s: request failed after %d attempts", p.name, maxHostedAttempts)
+}
+
+func (p hostedProvider) buildRequestBody(prompt string) ([]byte, error) {
 	if strings.TrimSpace(p.apiKey) == "" {
-		return "", fmt.Errorf("%s: api key is required", p.name)
+		return nil, fmt.Errorf("%s: api key is required", p.name)
 	}
 
 	payload, err := p.codec.BuildRequest(p.model, prompt)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
+	return json.Marshal(payload)
+}
 
+func (p hostedProvider) handleSuccessfulResponse(attempt int, resp *http.Response) (string, bool, error) {
+	text, retryable, err := p.parseSuccessfulResponse(resp, attempt)
+	if err == nil {
+		return text, true, nil
+	}
+	if !retryable {
+		return "", true, err
+	}
+	finished, failure := p.retryAfterTransportFailure(attempt, nil, err)
+	if finished {
+		return "", true, failure
+	}
+	return "", false, nil
+}
+
+func (p hostedProvider) parseSuccessfulResponse(resp *http.Response, attempt int) (string, bool, error) {
+	reader := responseBodyReader{source: resp.Body}
+	text, err := p.codec.ParseResponse(&reader)
+	closeBody(resp.Body)
+	if err == nil {
+		return strings.TrimSpace(text), false, nil
+	}
+	if reader.transientError != nil {
+		return "", true, reader.transientError
+	}
+	detail := transportErrorDetail(err, p.apiKey, p.endpointForModel())
+	return "", false, fmt.Errorf("%s: request failed after %s: response could not be parsed: %s", p.name, describeAttempts(attempt), detail)
+}
+
+type responseBodyReader struct {
+	source         io.Reader
+	transientError error
+}
+
+func (reader *responseBodyReader) Read(buffer []byte) (int, error) {
+	n, err := reader.source.Read(buffer)
+	if !errors.Is(err, io.EOF) {
+		if _, transient := transientTransportDescription(err); transient {
+			reader.transientError = err
+		}
+	}
+	return n, err
+}
+
+func (p hostedProvider) retryAfterTransportFailure(attempt int, resp *http.Response, err error) (bool, error) {
+	closeResponse(resp)
+	description, transient := transientTransportDescription(err)
+	if !transient || attempt == maxHostedAttempts {
+		return true, p.transportFailure(attempt, err)
+	}
+	p.retry(attempt, description, "")
+	return false, nil
+}
+
+func (p hostedProvider) retryAfterStatusFailure(attempt int, resp *http.Response) (bool, error) {
+	responseBody, _ := io.ReadAll(resp.Body)
+	closeBody(resp.Body)
+	failure := statusFailure{code: resp.StatusCode, body: p.redact(string(responseBody))}
+	if !isTransientStatus(failure.code) || attempt == maxHostedAttempts {
+		return true, p.statusFailure(attempt, failure)
+	}
+	p.retry(attempt, failure.statusDescription(), resp.Header.Get("Retry-After"))
+	return false, nil
+}
+
+func (p hostedProvider) sendRequest(body []byte) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost, p.endpointForModel(), bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		detail := transportErrorDetail(err, p.apiKey, p.endpointForModel())
+		return nil, fmt.Errorf("%s: create request: %s", p.name, detail)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	p.codec.DecorateRequest(req, p.apiKey)
+	return p.client.Do(req)
+}
 
-	resp, err := p.client.Do(req)
+func (p hostedProvider) retry(failedAttempt int, description, retryAfter string) {
+	delay := p.retryDelay(failedAttempt, retryAfter)
+	notice := fmt.Sprintf("%s: %s, retrying in %.1fs (attempt %d/%d)",
+		p.name, description, delay.Seconds(), failedAttempt+1, maxHostedAttempts)
+	if p.retryNotice != nil {
+		p.retryNotice(notice)
+	} else {
+		fmt.Fprintln(os.Stderr, notice)
+	}
+	retrySleep(delay)
+}
+
+func (p hostedProvider) retryDelay(failedAttempt int, retryAfter string) time.Duration {
+	if delay, valid := parseRetryAfter(retryAfter, p.now); valid {
+		return delay
+	}
+	return retryJitter(retryDelayLimit(failedAttempt))
+}
+
+func parseRetryAfter(value string, now func() time.Time) (time.Duration, bool) {
+	value = strings.Trim(value, " \t")
+	if value == "" {
+		return 0, false
+	}
+	delay, valid := parseRetryAfterSeconds(value)
+	if !valid {
+		retryAt, err := http.ParseTime(value)
+		if err != nil {
+			return 0, false
+		}
+		delay = retryAt.Sub(now())
+		if delay < 0 {
+			return 0, false
+		}
+	}
+	return min(delay, maxRetryDelay), true
+}
+
+func parseRetryAfterSeconds(value string) (time.Duration, bool) {
+	if strings.HasPrefix(value, "+") {
+		return 0, false
+	}
+	seconds, err := strconv.ParseUint(value, 10, 64)
+	if errors.Is(err, strconv.ErrRange) {
+		return time.Duration(1<<63 - 1), true
+	}
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", p.name, err)
+		return 0, false
 	}
-	defer closeBody(resp.Body)
+	maxDuration := time.Duration(1<<63 - 1)
+	if seconds > uint64(maxDuration/time.Second) {
+		return maxDuration, true
+	}
+	return time.Duration(seconds) * time.Second, true
+}
 
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("%s: %s", p.name, strings.TrimSpace(string(b)))
+func retryDelayLimit(retryNumber int) time.Duration {
+	delay := baseRetryDelay
+	for i := 1; i < retryNumber && delay < maxRetryDelay; i++ {
+		if delay > maxRetryDelay/2 {
+			return maxRetryDelay
+		}
+		delay *= 2
 	}
+	if delay > maxRetryDelay {
+		return maxRetryDelay
+	}
+	return delay
+}
 
-	text, err := p.codec.ParseResponse(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", p.name, err)
+func fullJitter(upperBound time.Duration) time.Duration {
+	return time.Duration(rand.Int63n(int64(upperBound) + 1))
+}
+
+func isTransientStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
 	}
-	return strings.TrimSpace(text), nil
+}
+
+func transientTransportDescription(err error) (string, bool) {
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return "timeout", true
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return "connection reset", true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "connection refused", true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "unexpected end of response", true
+	}
+	return "", false
+}
+
+func (p hostedProvider) transportFailure(attempts int, err error) error {
+	detail := transportErrorDetail(err, p.apiKey, p.endpointForModel())
+	return fmt.Errorf("%s: request failed after %s: transport error: %s", p.name, describeAttempts(attempts), detail)
+}
+
+func transportErrorDetail(err error, apiKey, endpoint string) string {
+	var requestError *url.Error
+	if errors.As(err, &requestError) {
+		err = requestError.Err
+	}
+	detail := strings.TrimSpace(err.Error())
+	detail = redactAPIKey(detail, apiKey)
+	if endpoint != "" {
+		detail = strings.ReplaceAll(detail, endpoint, "provider endpoint")
+	}
+	detail = transportURL.ReplaceAllString(detail, "provider endpoint")
+	return detail
+}
+
+func (p hostedProvider) statusFailure(attempts int, failure statusFailure) error {
+	description := failure.statusDescription()
+	if failure.body != "" {
+		description += ": " + strings.TrimSpace(failure.body)
+	}
+	return fmt.Errorf("%s: request failed after %s: %s", p.name, describeAttempts(attempts), description)
+}
+
+func describeAttempts(attempts int) string {
+	if attempts == 1 {
+		return "1 attempt"
+	}
+	return fmt.Sprintf("%d attempts", attempts)
+}
+
+func (p hostedProvider) redact(value string) string {
+	return redactAPIKey(value, p.apiKey)
+}
+
+func redactAPIKey(value, apiKey string) string {
+	if apiKey == "" {
+		return value
+	}
+	value = strings.ReplaceAll(value, apiKey, "[redacted]")
+	escapedAPIKey := url.QueryEscape(apiKey)
+	if escapedAPIKey != apiKey {
+		value = strings.ReplaceAll(value, escapedAPIKey, "[redacted]")
+	}
+	return value
+}
+
+type statusFailure struct {
+	code int
+	body string
+}
+
+func (failure statusFailure) statusDescription() string {
+	return fmt.Sprintf("HTTP %d %s", failure.code, http.StatusText(failure.code))
+}
+
+func closeResponse(resp *http.Response) {
+	if resp != nil && resp.Body != nil {
+		closeBody(resp.Body)
+	}
 }
 
 func (p hostedProvider) endpointForModel() string {
